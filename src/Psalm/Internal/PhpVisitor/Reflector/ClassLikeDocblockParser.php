@@ -69,8 +69,6 @@ class ClassLikeDocblockParser
                 $source_prefix = 'none';
                 if (isset($parsed_docblock->tags['psalm-template'][$offset])) {
                     $source_prefix = 'psalm';
-                } elseif (isset($parsed_docblock->tags['phpstan-template'][$offset])) {
-                    $source_prefix = 'phpstan';
                 }
 
                 if (count($template_type) > 1
@@ -103,8 +101,6 @@ class ClassLikeDocblockParser
                 $source_prefix = 'none';
                 if (isset($parsed_docblock->tags['psalm-template-covariant'][$offset])) {
                     $source_prefix = 'psalm';
-                } elseif (isset($parsed_docblock->tags['phpstan-template-covariant'][$offset])) {
-                    $source_prefix = 'phpstan';
                 }
 
                 if (count($template_type) > 1
@@ -261,7 +257,6 @@ class ClassLikeDocblockParser
         }
 
         $imported_types = array_merge(
-            $parsed_docblock->tags['phpstan-import-type'] ?? [],
             $parsed_docblock->tags['psalm-import-type'] ?? []
         );
 

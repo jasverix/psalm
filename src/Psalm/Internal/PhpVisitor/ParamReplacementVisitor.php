@@ -71,8 +71,6 @@ class ParamReplacementVisitor extends PhpParser\NodeVisitorAbstract
                 foreach ($tags as $i => $tag) {
                     if ($tag_name === 'param'
                         || $tag_name === 'psalm-param'
-                        || $tag_name === 'phpstan-param'
-                        || $tag_name === 'phan-param'
                     ) {
                         $parts = \Psalm\Internal\Analyzer\CommentAnalyzer::splitDocLine($tag);
 

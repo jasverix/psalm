@@ -1582,12 +1582,11 @@ class ClassLikeNodeScanner
     ): array {
         $parsed_docblock = DocComment::parsePreservingLength($comment);
 
-        if (!isset($parsed_docblock->tags['psalm-type']) && !isset($parsed_docblock->tags['phpstan-type'])) {
+        if (!isset($parsed_docblock->tags['psalm-type'])) {
             return [];
         }
 
         $type_alias_comment_lines = array_merge(
-            $parsed_docblock->tags['phpstan-type'] ?? [],
             $parsed_docblock->tags['psalm-type'] ?? []
         );
 

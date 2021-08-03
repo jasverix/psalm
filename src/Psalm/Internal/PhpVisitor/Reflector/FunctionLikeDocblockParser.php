@@ -372,8 +372,6 @@ class FunctionLikeDocblockParser
                 $source_prefix = 'none';
                 if (isset($parsed_docblock->tags['psalm-template'][$offset])) {
                     $source_prefix = 'psalm';
-                } elseif (isset($parsed_docblock->tags['phpstan-template'][$offset])) {
-                    $source_prefix = 'phpstan';
                 }
 
                 if (count($template_type) > 1
@@ -544,14 +542,12 @@ class FunctionLikeDocblockParser
     {
         if (count($parsed_docblock->tags['return'] ?? []) > 1
             || count($parsed_docblock->tags['psalm-return'] ?? []) > 1
-            || count($parsed_docblock->tags['phpstan-return'] ?? []) > 1
         ) {
             throw new DocblockParseException('Found duplicated @return or prefixed @return tag');
         }
 
         self::checkDuplicatedParams($parsed_docblock->tags['param'] ?? []);
         self::checkDuplicatedParams($parsed_docblock->tags['psalm-param'] ?? []);
-        self::checkDuplicatedParams($parsed_docblock->tags['phpstan-param'] ?? []);
     }
 
     /**
