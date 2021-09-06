@@ -1583,42 +1583,6 @@ class AssertionFinder
      * @param PhpParser\Node\Expr\BinaryOp\Greater|PhpParser\Node\Expr\BinaryOp\GreaterOrEqual $conditional
      * @return false|int
      */
-    protected static function hasSuperiorNumberCheck(
-        PhpParser\Node\Expr\BinaryOp $conditional,
-        ?int &$literal_value_comparison
-    ) {
-        if ($conditional->right instanceof PhpParser\Node\Scalar\LNumber) {
-            $literal_value_comparison = $conditional->right->value +
-                ($conditional instanceof PhpParser\Node\Expr\BinaryOp\Greater ? 1 : 0);
-
-            return self::ASSIGNMENT_TO_RIGHT;
-        }
-
-        return false;
-    }
-
-    /**
-     * @param PhpParser\Node\Expr\BinaryOp\Smaller|PhpParser\Node\Expr\BinaryOp\SmallerOrEqual $conditional
-     * @return false|int
-     */
-    protected static function hasInferiorNumberCheck(
-        PhpParser\Node\Expr\BinaryOp $conditional,
-        ?int &$literal_value_comparison
-    ) {
-        if ($conditional->right instanceof PhpParser\Node\Scalar\LNumber) {
-            $literal_value_comparison = $conditional->right->value +
-                ($conditional instanceof PhpParser\Node\Expr\BinaryOp\Smaller ? -1 : 0);
-
-            return self::ASSIGNMENT_TO_RIGHT;
-        }
-
-        return false;
-    }
-
-    /**
-     * @param PhpParser\Node\Expr\BinaryOp\Greater|PhpParser\Node\Expr\BinaryOp\GreaterOrEqual $conditional
-     * @return false|int
-     */
     protected static function hasZeroCheck(
         PhpParser\Node\Expr\BinaryOp $conditional,
         ?int &$zero_count
@@ -3465,42 +3429,38 @@ class AssertionFinder
                     || $atomic_type instanceof Type\Atomic\TKeyedArray
                     || $atomic_type instanceof Type\Atomic\TList
                 ) {
+                    $is_sealed = false;
                     if ($atomic_type instanceof Type\Atomic\TList) {
                         $value_type = $atomic_type->type_param;
                     } elseif ($atomic_type instanceof Type\Atomic\TKeyedArray) {
                         $value_type = $atomic_type->getGenericValueType();
+                        $is_sealed = $atomic_type->sealed;
                     } else {
                         $value_type = $atomic_type->type_params[1];
                     }
 
-                    $array_literal_types = \array_filter(
-                        $value_type->getAtomicTypes(),
-                        function ($type) {
-                            return $type instanceof Type\Atomic\TLiteralInt
-                                || $type instanceof Type\Atomic\TLiteralString
-                                || $type instanceof Type\Atomic\TLiteralFloat
-                                || $type instanceof Type\Atomic\TEnumCase;
+                    $assertions = [];
+
+                    if (!$is_sealed) {
+                        if ($value_type->getId() !== '' && !$value_type->isMixed()) {
+                            $assertions[] = 'in-array-' . $value_type->getId();
                         }
-                    );
-
-                    if ($array_literal_types
-                        && count($value_type->getAtomicTypes())
-                    ) {
-                        $literal_assertions = [];
-
-                        foreach ($array_literal_types as $array_literal_type) {
-                            $literal_assertions[] = '=' . $array_literal_type->getAssertionString();
+                    } else {
+                        foreach ($value_type->getAtomicTypes() as $atomic_value_type) {
+                            if ($atomic_value_type instanceof Type\Atomic\TLiteralInt
+                                || $atomic_value_type instanceof Type\Atomic\TLiteralString
+                                || $atomic_value_type instanceof Type\Atomic\TLiteralFloat
+                                || $atomic_value_type instanceof Type\Atomic\TEnumCase
+                            ) {
+                                $assertions[] = '=' . $atomic_value_type->getAssertionString();
+                            } else {
+                                $assertions[] = $atomic_value_type->getAssertionString();
+                            }
                         }
+                    }
 
-                        if ($value_type->isFalsable()) {
-                            $literal_assertions[] = 'false';
-                        }
-
-                        if ($value_type->isNullable()) {
-                            $literal_assertions[] = 'null';
-                        }
-
-                        $if_types[$first_var_name] = [$literal_assertions];
+                    if ($assertions !== []) {
+                        $if_types[$first_var_name] = [$assertions];
                     }
                 }
             }
@@ -3653,8 +3613,6 @@ class AssertionFinder
         $count_equality_position = self::hasNonEmptyCountEqualityCheck($conditional, $min_count);
         $min_comparison = null;
         $positive_number_position = self::hasPositiveNumberCheck($conditional, $min_comparison);
-        $superior_value_comparison = null;
-        $superior_value_position = self::hasSuperiorNumberCheck($conditional, $superior_value_comparison);
         $zero_comparison = null;
         $zero_position = self::hasZeroCheck($conditional, $zero_comparison);
         $max_count = null;
@@ -3709,28 +3667,6 @@ class AssertionFinder
                 } else {
                     $if_types[$var_name] = [['!non-empty-countable']];
                 }
-            }
-
-            return $if_types ? [$if_types] : [];
-        }
-
-        if ($superior_value_position) {
-            if ($superior_value_position === self::ASSIGNMENT_TO_RIGHT) {
-                $var_name = ExpressionIdentifier::getArrayVarId(
-                    $conditional->left,
-                    $this_class_name,
-                    $source
-                );
-            } else {
-                $var_name = ExpressionIdentifier::getArrayVarId(
-                    $conditional->right,
-                    $this_class_name,
-                    $source
-                );
-            }
-
-            if ($var_name) {
-                $if_types[$var_name] = [['=isset'], ['>' . $superior_value_comparison]];
             }
 
             return $if_types ? [$if_types] : [];
@@ -3865,8 +3801,6 @@ class AssertionFinder
         $min_count = null;
         $count_equality_position = self::hasNonEmptyCountEqualityCheck($conditional, $min_count);
         $typed_value_position = self::hasTypedValueComparison($conditional, $source);
-        $inferior_value_comparison = null;
-        $inferior_value_position = self::hasInferiorNumberCheck($conditional, $inferior_value_comparison);
 
         $max_count = null;
         $count_inequality_position = self::hasLessThanCountEqualityCheck($conditional, $max_count);
@@ -3916,28 +3850,6 @@ class AssertionFinder
                 } else {
                     $if_types[$var_name] = [['!non-empty-countable']];
                 }
-            }
-
-            return $if_types ? [$if_types] : [];
-        }
-
-        if ($inferior_value_position) {
-            if ($inferior_value_position === self::ASSIGNMENT_TO_RIGHT) {
-                $var_name = ExpressionIdentifier::getArrayVarId(
-                    $conditional->left,
-                    $this_class_name,
-                    $source
-                );
-            } else {
-                $var_name = ExpressionIdentifier::getArrayVarId(
-                    $conditional->right,
-                    $this_class_name,
-                    $source
-                );
-            }
-
-            if ($var_name) {
-                $if_types[$var_name] = [['=isset'], ['<' . $inferior_value_comparison]];
             }
 
             return $if_types ? [$if_types] : [];

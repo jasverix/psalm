@@ -794,7 +794,7 @@ class ValueTest extends \Psalm\Tests\TestCase
             'returnFromUnionLiteral' => [
                 '<?php
                     /**
-                     * @return list<"a1"|"a2">
+                     * @return array{"a1", "a2"}
                      */
                     function getSupportedConsts() {
                         return ["a1", "a2"];
@@ -814,7 +814,7 @@ class ValueTest extends \Psalm\Tests\TestCase
             'returnFromUnionLiteralNegated' => [
                 '<?php
                     /**
-                     * @return list<"a1"|"a2">
+                     * @return array{"a1", "a2"}
                      */
                     function getSupportedConsts() {
                         return ["a1", "a2"];
@@ -959,6 +959,39 @@ class ValueTest extends \Psalm\Tests\TestCase
                     if ($a !== 4.1) {
                         // do something
                     }',
+                'error_message' => 'RedundantCondition',
+            ],
+            'inArrayRemoveNull' => [
+                '<?php
+                    function x(?string $foo, string $bar): void {
+                        if (!in_array($foo, [$bar], true)) {
+                            throw new Exception();
+                        }
+
+                        if (is_string($foo)) {}
+                    }',
+                'error_message' => 'RedundantCondition',
+            ],
+            'inArrayDetectType' => [
+                '<?php
+                    function x($foo, string $bar): void {
+                        if (!in_array($foo, [$bar], true)) {
+                            throw new Exception();
+                        }
+
+                        if (is_string($foo)) {}
+                    }',
+                // foo is always string
+                'error_message' => 'RedundantCondition',
+            ],
+            'inArrayRemoveInvalid' => [
+                '<?php
+                    function x(?string $foo, int $bar): void {
+                        if (!in_array($foo, [$bar], true)) {
+                            throw new Exception();
+                        }
+                    }',
+                // Type null|string is never int
                 'error_message' => 'RedundantCondition',
             ],
             'neverNotIdenticalFloatType' => [
