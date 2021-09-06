@@ -2665,7 +2665,16 @@ class ConditionalTest extends \Psalm\Tests\TestCase
                          $takesValid($val3);
                      }
                  }'
-            ]
+            ],
+            'ternaryRedefineAllVars' => [
+                '<?php
+                    $_a = null;
+                    $b = rand(0,1) ? "" : "a";
+                    $b === "a" ? $_a = "Y" : $_a = "N";',
+                'assertions' => [
+                    '$_a===' => '"N"|"Y"',
+                ]
+            ],
         ];
     }
 
@@ -3043,6 +3052,13 @@ class ConditionalTest extends \Psalm\Tests\TestCase
                 '<?php
                     function foo(Exception $e) : void {
                         if (get_class($e) == "InvalidArgumentException") {}
+                    }',
+                'error_message' => 'TypeDoesNotContainType',
+            ],
+            'falsyValuesInIf' => [
+                '<?php
+                    if (0) {
+                        echo 123;
                     }',
                 'error_message' => 'TypeDoesNotContainType',
             ],
