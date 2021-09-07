@@ -268,7 +268,8 @@ class ClassLikeDocblockParser
         }
 
         $imported_types = (
-            ($parsed_docblock->tags['psalm-import-type'] ?? []);
+            ($parsed_docblock->tags['psalm-import-type'] ?? [])
+        );
 
         foreach ($imported_types as $offset => $imported_type_entry) {
             $info->imported_types[] = [
