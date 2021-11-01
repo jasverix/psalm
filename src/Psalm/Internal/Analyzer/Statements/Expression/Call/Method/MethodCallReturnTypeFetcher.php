@@ -43,7 +43,7 @@ class MethodCallReturnTypeFetcher
         AtomicMethodCallAnalysisResult $result,
         TemplateResult $template_result
     ) : Type\Union {
-        $call_map_id = $declaring_method_id ?: $method_id;
+        $call_map_id = $declaring_method_id ?? $method_id;
 
         $fq_class_name = $method_id->fq_class_name;
         $method_name = $method_id->method_name;
@@ -545,6 +545,18 @@ class MethodCallReturnTypeFetcher
                             'fn-' . strtolower((string) $method_id) => [
                                 new TemplateBound(
                                     Type::getInt(false, $codebase->php_major_version)
+                                )
+                            ]
+                        ];
+                    } elseif ($template_type->param_name === 'TPhpVersionId') {
+                        $template_result->lower_bounds[$template_type->param_name] = [
+                            'fn-' . strtolower((string) $method_id) => [
+                                new TemplateBound(
+                                    Type::getInt(
+                                        false,
+                                        10000 * $codebase->php_major_version
+                                        + 100 * $codebase->php_minor_version
+                                    )
                                 )
                             ]
                         ];
