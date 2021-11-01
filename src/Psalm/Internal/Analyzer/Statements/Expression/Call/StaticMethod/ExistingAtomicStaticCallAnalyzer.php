@@ -407,7 +407,7 @@ class ExistingAtomicStaticCallAnalyzer
             }
         }
 
-        $return_type_candidate = $return_type_candidate ?: Type::getMixed();
+        $return_type_candidate = $return_type_candidate ?? Type::getMixed();
 
         \Psalm\Internal\Analyzer\Statements\Expression\Call\StaticCallAnalyzer::taintReturnType(
             $statements_analyzer,
@@ -496,6 +496,18 @@ class ExistingAtomicStaticCallAnalyzer
                                 'fn-' . strtolower((string)$method_id) => [
                                     new TemplateBound(
                                         Type::getInt(false, $codebase->php_major_version)
+                                    )
+                                ]
+                            ];
+                        } elseif ($template_type->param_name === 'TPhpVersionId') {
+                            $template_result->lower_bounds[$template_type->param_name] = [
+                                'fn-' . strtolower((string) $method_id) => [
+                                    new TemplateBound(
+                                        Type::getInt(
+                                            false,
+                                            10000 * $codebase->php_major_version
+                                            + 100 * $codebase->php_minor_version
+                                        )
                                     )
                                 ]
                             ];

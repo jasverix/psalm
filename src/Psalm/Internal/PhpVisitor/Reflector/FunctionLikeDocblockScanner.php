@@ -31,6 +31,7 @@ use function explode;
 use function preg_match;
 use function preg_replace;
 use function preg_split;
+use function str_replace;
 use function strlen;
 use function strpos;
 use function strtolower;
@@ -476,6 +477,19 @@ class FunctionLikeDocblockScanner
 
                 $storage->template_types[$template_name] = [
                     $template_function_id => Type::getInt(),
+                ];
+
+                $function_template_types[$template_name]
+                    = $storage->template_types[$template_name];
+
+                $fixed_type_tokens[$i][0] = $template_name;
+            }
+
+            if ($token_body === 'PHP_VERSION_ID') {
+                $template_name = 'TPhpVersionId';
+
+                $storage->template_types[$template_name] = [
+                    $template_function_id => Type::getInt()
                 ];
 
                 $function_template_types[$template_name]
@@ -1136,6 +1150,14 @@ class FunctionLikeDocblockScanner
                         );
                         continue 2;
                     }
+
+                    if (strpos($assertion['param_name'], $param->name.'->') === 0) {
+                        $storage->assertions[] = new \Psalm\Storage\Assertion(
+                            str_replace($param->name, (string) $i, $assertion['param_name']),
+                            [$assertion_type_parts]
+                        );
+                        continue 2;
+                    }
                 }
 
                 $storage->assertions[] = new \Psalm\Storage\Assertion(
@@ -1175,6 +1197,14 @@ class FunctionLikeDocblockScanner
                         );
                         continue 2;
                     }
+
+                    if (strpos($assertion['param_name'], $param->name.'->') === 0) {
+                        $storage->if_true_assertions[] = new \Psalm\Storage\Assertion(
+                            str_replace($param->name, (string) $i, $assertion['param_name']),
+                            [$assertion_type_parts]
+                        );
+                        continue 2;
+                    }
                 }
 
                 $storage->if_true_assertions[] = new \Psalm\Storage\Assertion(
@@ -1210,6 +1240,14 @@ class FunctionLikeDocblockScanner
                     if ($param->name === $assertion['param_name']) {
                         $storage->if_false_assertions[] = new \Psalm\Storage\Assertion(
                             $i,
+                            [$assertion_type_parts]
+                        );
+                        continue 2;
+                    }
+
+                    if (strpos($assertion['param_name'], $param->name.'->') === 0) {
+                        $storage->if_false_assertions[] = new \Psalm\Storage\Assertion(
+                            str_replace($param->name, (string) $i, $assertion['param_name']),
                             [$assertion_type_parts]
                         );
                         continue 2;
