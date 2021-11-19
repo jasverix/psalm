@@ -101,9 +101,17 @@ return [
         'old' => ['list<ReflectionClassConstant>'],
         'new' => ['list<ReflectionClassConstant>', 'filter='=>'?int'],
     ],
+    'ReflectionClass::newInstanceArgs' => [
+        'old' => ['object', 'args='=>'list<mixed>'],
+        'new' => ['object', 'args='=>'array<array-key, mixed>'],
+    ],
     'XMLWriter::flush' => [
       'old' => ['string|int|false', 'empty='=>'bool'],
       'new' => ['string|int', 'empty='=>'bool'],
+    ],
+    'SoapClient::__doRequest' => [
+      'old' => ['string', 'request'=>'string', 'location'=>'string', 'action'=>'string', 'version'=>'int', 'one_way='=>'int'],
+      'new' => ['string', 'request'=>'string', 'location'=>'string', 'action'=>'string', 'version'=>'int', 'one_way='=>'bool'],
     ],
     'XMLWriter::startAttributeNs' => [
       'old' => ['bool', 'prefix'=>'string', 'name'=>'string', 'namespace'=>'?string'],
@@ -714,8 +722,8 @@ return [
       'new' => ['string|false', 'string'=>'string', 'to_encoding'=>'string', 'from_encoding='=>'array|string|null'],
     ],
     'mb_convert_encoding\'1' => [
-      'old' => ['array<int, string>', 'string'=>'array<int, string>', 'to_encoding'=>'string', 'from_encoding='=>'mixed'],
-      'new' => ['array<int, string>', 'string'=>'array<int, string>', 'to_encoding'=>'string', 'from_encoding='=>'array|string|null'],
+      'old' => ['array', 'string'=>'array', 'to_encoding'=>'string', 'from_encoding='=>'mixed'],
+      'new' => ['array', 'string'=>'array', 'to_encoding'=>'string', 'from_encoding='=>'array|string|null'],
     ],
     'mb_convert_kana' => [
       'old' => ['string', 'string'=>'string', 'mode='=>'string', 'encoding='=>'string'],
@@ -897,9 +905,25 @@ return [
       'old' => ['int|false', 'hour='=>'int', 'minute='=>'int', 'second='=>'int', 'month='=>'int', 'day='=>'int', 'year='=>'int'],
       'new' => ['int|false', 'hour'=>'int', 'minute='=>'int|null', 'second='=>'int|null', 'month='=>'int|null', 'day='=>'int|null', 'year='=>'int|null'],
     ],
+    'mysqli::__construct' => [
+      'old' => ['void', 'hostname='=>'string', 'username='=>'string', 'password='=>'string', 'database='=>'string', 'port='=>'int', 'socket='=>'string'],
+      'new' => ['void', 'hostname='=>'string|null', 'username='=>'string|null', 'password='=>'string|null', 'database='=>'string|null', 'port='=>'int|null', 'socket='=>'string|null'],
+    ],
+    'mysqli::connect' => [
+      'old' => ['null|false', 'hostname='=>'string', 'username='=>'string', 'password='=>'string', 'database='=>'string', 'port='=>'int', 'socket='=>'string'],
+      'new' => ['null|false', 'hostname='=>'string|null', 'username='=>'string|null', 'password='=>'string|null', 'database='=>'string|null', 'port='=>'int|null', 'socket='=>'string|null'],
+    ],
+    'mysqli_connect' => [
+      'old' => ['mysqli|false', 'hostname='=>'string', 'username='=>'string', 'password='=>'string', 'database='=>'string', 'port='=>'int', 'socket='=>'string'],
+      'new' => ['mysqli|false', 'hostname='=>'string|null', 'username='=>'string|null', 'password='=>'string|null', 'database='=>'string|null', 'port='=>'int|null', 'socket='=>'string|null'],
+    ],
     'openssl_pkey_get_private' => [
       'old' => ['resource|false', 'private_key'=>'string', 'passphrase='=>'string'],
       'new' => ['OpenSSLAsymmetricKey|false', 'private_key'=>'OpenSSLAsymmetricKey|OpenSSLCertificate|array|string', 'passphrase='=>'?string'],
+    ],
+    'openssl_sign' => [
+      'old' => ['bool', 'data'=>'string', '&w_signature'=>'string', 'private_key'=>'resource|string', 'algorithm='=>'int|string'],
+      'new' => ['bool', 'data'=>'string', '&w_signature'=>'string', 'private_key'=>'OpenSSLAsymmetricKey|OpenSSLCertificate|array{OpenSSLAsymmetricKey|OpenSSLCertificate|string, string}|string', 'algorithm='=>'int|string'],
     ],
     'openssl_x509_parse' => [
       'old' => ['array|false', 'certificate'=>'string|resource', 'short_names='=>'bool'],
@@ -920,6 +944,10 @@ return [
     'proc_get_status' => [
       'old' => ['array{command: string, pid: int, running: bool, signaled: bool, stopped: bool, exitcode: int, termsig: int, stopsig: int}|false', 'process'=>'resource'],
       'new' => ['array{command: string, pid: int, running: bool, signaled: bool, stopped: bool, exitcode: int, termsig: int, stopsig: int}', 'process'=>'resource'],
+    ],
+    'session_set_cookie_params' => [
+      'old' => ['bool', 'lifetime'=>'int', 'path='=>'string', 'domain='=>'string', 'secure='=>'bool', 'httponly='=>'bool'],
+      'new' => ['bool', 'lifetime'=>'int', 'path='=>'?string', 'domain='=>'?string', 'secure='=>'?bool', 'httponly='=>'?bool'],
     ],
     'socket_accept' => [
       'old' => ['resource|false', 'socket'=>'resource'],

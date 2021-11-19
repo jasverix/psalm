@@ -17,8 +17,6 @@ class BinaryOperationTest extends TestCase
     {
         if (class_exists('GMP') === false) {
             $this->markTestSkipped('Cannot run test, base class "GMP" does not exist!');
-
-            return;
         }
 
         $this->addFile(
@@ -701,6 +699,19 @@ class BinaryOperationTest extends TestCase
                     '$a' => 'float|int',
                     '$b' => 'float|int',
                 ],
+            ],
+            'coalesceFilterOutNullEvenWithTernary' => [
+                '<?php
+
+                    interface FooInterface
+                    {
+                        public function toString(): ?string;
+                    }
+
+                    function example(object $foo): string
+                    {
+                        return ($foo instanceof FooInterface ? $foo->toString() : null) ?? "Not a stringable foo";
+                    }',
             ],
         ];
     }

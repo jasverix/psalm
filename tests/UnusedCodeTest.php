@@ -5,7 +5,12 @@ use Psalm\Config;
 use Psalm\Context;
 use Psalm\Internal\Provider\FakeFileProvider;
 use Psalm\Internal\RuntimeCaches;
+use Psalm\IssueBuffer;
 use Psalm\Tests\Internal\Provider;
+
+use function getcwd;
+
+use const DIRECTORY_SEPARATOR;
 
 class UnusedCodeTest extends TestCase
 {
@@ -97,6 +102,70 @@ class UnusedCodeTest extends TestCase
         $this->project_analyzer->consolidateAnalyzedData();
 
         \Psalm\IssueBuffer::processUnusedSuppressions($this->project_analyzer->getCodebase()->file_provider);
+    }
+
+    public function testSeesClassesUsedAfterUnevaluatedCodeIssue(): void
+    {
+        $this->project_analyzer->getConfig()->throw_exception = false;
+        $file_path = getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php';
+
+        $this->addFile(
+            $file_path,
+            '<?php
+                if (rand(0, 1)) {
+                    throw new Exception("foo");
+                    echo "bar";
+                } else {
+                    $f = new Foo();
+                    $f->bar();
+                }
+
+                class Foo {
+                    function bar(): void{
+                        echo "foo";
+                    }
+                }
+            '
+        );
+        $this->analyzeFile($file_path, new Context(), false);
+        $this->project_analyzer->consolidateAnalyzedData();
+
+        $this->assertSame(1, IssueBuffer::getErrorCount());
+        $issue = IssueBuffer::getIssuesDataForFile($file_path)[0];
+        $this->assertSame('UnevaluatedCode', $issue->type);
+        $this->assertSame(4, $issue->line_from);
+    }
+
+    public function testSeesUnusedClassReferencedByUnevaluatedCode(): void
+    {
+        $this->project_analyzer->getConfig()->throw_exception = false;
+        $file_path = getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php';
+
+        $this->addFile(
+            $file_path,
+            '<?php
+                if (rand(0, 1)) {
+                    throw new Exception("foo");
+                    $f = new Foo();
+                    $f->bar();
+                } else {
+                    echo "bar";
+                }
+
+                class Foo {
+                    function bar(): void{
+                        echo "foo";
+                    }
+                }
+            '
+        );
+        $this->analyzeFile($file_path, new Context(), false);
+        $this->project_analyzer->consolidateAnalyzedData();
+
+        $this->assertSame(3, IssueBuffer::getErrorCount());
+        $issue = IssueBuffer::getIssuesDataForFile($file_path)[2];
+        $this->assertSame('UnusedClass', $issue->type);
+        $this->assertSame(10, $issue->line_from);
     }
 
     /**
@@ -1056,6 +1125,50 @@ class UnusedCodeTest extends TestCase
                     `$used`;
                 ',
             ],
+            'notUnevaluatedFunction' => [
+                '<?php
+                    /** @return never */
+                    function neverReturns(){
+                        die();
+                    }
+                    unrelated();
+                    neverReturns();
+
+                    function unrelated():void{
+                        echo "hello";
+                    }',
+            ],
+            'NotUnusedWhenAssert' => [
+                '<?php
+
+                    class A {
+                        public function getVal(?string $val): string {
+                            $this->assert($val);
+
+                            return $val;
+                        }
+
+                        /**
+                         * @psalm-assert string $val
+                         * @psalm-mutation-free
+                         */
+                        private function assert(?string $val): void {
+                            if (null === $val) {
+                                throw new Exception();
+                            }
+                        }
+                    }
+
+                    $a = new A();
+                    echo $a->getVal(null);',
+            ],
+            '__halt_compiler_no_usage_check' => [
+                '<?php
+                    exit(0);
+                    __halt_compiler();
+                    foobar
+                ',
+            ],
         ];
     }
 
@@ -1490,6 +1603,52 @@ class UnusedCodeTest extends TestCase
                     };
                 ',
                 'error_message' => 'UnusedFunctionCall',
+            ],
+            'functionNeverUnevaluatedCode' => [
+                '<?php
+                    /** @return never */
+                    function neverReturns() {
+                        die();
+                    }
+
+                    function f(): void {
+                        neverReturns();
+                        echo "hello";
+                    }
+                ',
+                'error_message' => 'UnevaluatedCode',
+            ],
+            'methodNeverUnevaluatedCode' => [
+                '<?php
+                    class A{
+                        /** @return never */
+                        function neverReturns() {
+                            die();
+                        }
+
+                        function f(): void {
+                            $this->neverReturns();
+                            echo "hello";
+                        }
+                    }
+                ',
+                'error_message' => 'UnevaluatedCode',
+            ],
+            'exitNeverUnevaluatedCode' => [
+                '<?php
+                    function f(): void {
+                        exit();
+                        echo "hello";
+                    }
+                ',
+                'error_message' => 'UnevaluatedCode',
+            ],
+            'exitInlineHtml' => [
+                '<?php
+                    exit(0);
+                    ?'.'>foo
+                ',
+                'error_message' => 'UnevaluatedCode',
             ],
         ];
     }

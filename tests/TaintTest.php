@@ -616,6 +616,21 @@ class TaintTest extends TestCase
                     echo foo($_GET["foo"], true);
                     echo foo($_GET["foo"]);'
             ],
+            'NoTaintForInt' => [
+                '<?php // --taint-analysis
+
+                    function foo(int $value): void {
+                        echo $value;
+                    }
+
+                    foo($_GET["foo"]);
+
+                    function bar(): int {
+                        return $_GET["foo"];
+                    }
+
+                    echo bar();'
+            ],
             'conditionallyEscapedTaintPassedTrueStaticCall' => [
                 '<?php
                     class U {
@@ -643,6 +658,18 @@ class TaintTest extends TestCase
                     }
 
                     takesArray(["good" => $_GET["bad"]]);'
+            ],
+            'resultOfComparisonIsNotTainted' => [
+                '<?php
+                    $input = $_GET["foo"];
+                    $var = $input === "x";
+                    var_dump($var);'
+            ],
+            'resultOfPlusIsNotTainted' => [
+                '<?php
+                    $input = $_GET["foo"];
+                    $var = $input + 1;
+                    var_dump($var);'
             ],
         ];
     }
@@ -2153,6 +2180,16 @@ class TaintTest extends TestCase
                     takesArray([$_GET["bad"] => "good"]);',
                 'error_message' => 'TaintedHtml',
             ],
+            'resultOfPlusIsTaintedOnArrays' => [
+                '<?php
+                    scope($_GET["foo"]);
+                    function scope(array $foo)
+                    {
+                        $var = $foo + [];
+                        var_dump($var);
+                    }',
+                'error_message' => 'TaintedHtml',
+            ],
             'taintArrayKeyWithExplicitSink' => [
                 '<?php
                     /** @psalm-taint-sink html $values */
@@ -2172,6 +2209,14 @@ class TaintTest extends TestCase
                     foo([$_GET["a"]]);',
                 'error_message' => 'TaintedHtml',
             ],
+            'shellExecBacktick' => [
+                '<?php
+
+                    $input = $_GET["input"];
+                    $x = `$input`;
+                    ',
+                'error_message' => 'TaintedShell',
+            ],
             /*
             // TODO: Stubs do not support this type of inference even with $this->message = $message.
             // Most uses of getMessage() would be with caught exceptions, so this is not representative of real code.
@@ -2182,6 +2227,29 @@ class TaintTest extends TestCase
                 'error_message' => 'TaintedHtml',
             ],
             */
+            'castToArrayPassTaints' => [
+                '<?php
+                    $args = $_POST;
+
+                    $args = (array) $args;
+
+                    pg_query($connection, "SELECT * FROM tableA where key = " .$args["key"]);
+                    ',
+                'error_message' => 'TaintedSql',
+            ],
+            'taintSinkWithComments' => [
+                '<?php
+
+                    /**
+                     * @psalm-taint-sink html $sink
+                     *
+                     * Not working
+                     */
+                    function sinkNotWorking($sink) : string {}
+
+                    echo sinkNotWorking($_GET["taint"]);',
+                'error_message' => 'TaintedHtml',
+            ],
         ];
     }
 
