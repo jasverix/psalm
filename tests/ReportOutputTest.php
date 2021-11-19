@@ -10,6 +10,7 @@ use Psalm\Internal\RuntimeCaches;
 use Psalm\IssueBuffer;
 use Psalm\Report;
 use Psalm\Report\JsonReport;
+use Psalm\Report\ReportOptions;
 use Psalm\Tests\Internal\Provider;
 
 use function array_values;
@@ -1067,6 +1068,22 @@ INFO: PossiblyUndefinedGlobalVariable - somefile.php:17:6 - Possibly undefined g
         );
     }
 
+    public function testConsoleReportWithLinks(): void
+    {
+        $this->analyzeFileForReport();
+
+        $console_report_options = new Report\ReportOptions();
+        $console_report_options->show_snippet = false;
+        $console_report_options->use_color = true;
+
+        $output  = IssueBuffer::getOutput(IssueBuffer::getIssuesData(), $console_report_options);
+
+        $this->assertStringContainsString(
+            "\033]8;;file://somefile.php#L3\033\\somefile.php:3:10\033]8;;\033\\",
+            $output
+        );
+    }
+
     public function testCompactReport(): void
     {
         $this->analyzeFileForReport();
@@ -1209,6 +1226,26 @@ column_to: 8
         //    ['report' => ['item' => $issue_data]],
         //    XML2Array::createArray(IssueBuffer::getOutput(ProjectAnalyzer::TYPE_XML, false), LIBXML_NOCDATA)
         //);
+    }
+
+    public function testGithubActionsOutput(): void
+    {
+        $this->analyzeFileForReport();
+
+        $github_report_options = new ReportOptions();
+        $github_report_options->format = Report::TYPE_GITHUB_ACTIONS;
+        $expected_output = <<<'EOF'
+::error file=somefile.php,line=3,col=10,title=UndefinedVariable::somefile.php:3:10: UndefinedVariable: Cannot find referenced variable $as_you_____type (see https://psalm.dev/024)
+::error file=somefile.php,line=3,col=10,title=MixedReturnStatement::somefile.php:3:10: MixedReturnStatement: Could not infer a return type (see https://psalm.dev/138)
+::error file=somefile.php,line=2,col=42,title=MixedInferredReturnType::somefile.php:2:42: MixedInferredReturnType: Could not verify return type 'null|string' for psalmCanVerify (see https://psalm.dev/047)
+::error file=somefile.php,line=8,col=6,title=UndefinedConstant::somefile.php:8:6: UndefinedConstant: Const CHANGE_ME is not defined (see https://psalm.dev/020)
+::warning file=somefile.php,line=17,col=6,title=PossiblyUndefinedGlobalVariable::somefile.php:17:6: PossiblyUndefinedGlobalVariable: Possibly undefined global variable $a, first seen on line 11 (see https://psalm.dev/126)
+
+EOF;
+        $this->assertSame(
+            $expected_output,
+            IssueBuffer::getOutput(IssueBuffer::getIssuesData(), $github_report_options)
+        );
     }
 
     public function testEmptyReportIfNotError(): void

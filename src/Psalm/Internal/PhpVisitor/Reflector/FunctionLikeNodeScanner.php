@@ -39,6 +39,7 @@ use function array_pop;
 use function count;
 use function explode;
 use function implode;
+use function in_array;
 use function is_string;
 use function strlen;
 use function strpos;
@@ -205,9 +206,7 @@ class FunctionLikeNodeScanner
             }
 
             if ($param_storage->name === 'haystack'
-                && (strpos($this->file_path, 'CoreGenericFunctions.phpstub')
-                    || strpos($this->file_path, 'CoreGenericClasses.phpstub')
-                    || strpos($this->file_path, 'CoreGenericIterators.phpstub'))
+                && in_array($this->file_path, $this->codebase->config->internal_stubs)
             ) {
                 $param_storage->expect_variable = true;
             }
@@ -606,7 +605,7 @@ class FunctionLikeNodeScanner
                 }
 
                 //both way to document type were used
-                if ($param_storage->type && $var_comment_type) {
+                if ($param_storage->type && $param_storage->type->from_docblock && $var_comment_type) {
                     if (IssueBuffer::accepts(
                         new InvalidDocblock(
                             'Param ' . $param_storage->name . ' of ' . $cased_function_id .
@@ -625,19 +624,20 @@ class FunctionLikeNodeScanner
 
                 $property_storage = $classlike_storage->properties[$param_storage->name] = new PropertyStorage();
                 $property_storage->is_static = false;
-                $property_storage->type = $param_storage->type ?? $var_comment_type;
+                $property_storage->type = $param_storage->type;
                 $property_storage->signature_type = $param_storage->signature_type;
                 $property_storage->signature_type_location = $param_storage->signature_type_location;
                 $property_storage->type_location = $param_storage->type_location;
                 $property_storage->location = $param_storage->location;
                 $property_storage->stmt_location = new CodeLocation($this->file_scanner, $param);
                 $property_storage->has_default = (bool)$param->default;
+                $property_storage->readonly = (bool)($param->flags & PhpParser\Node\Stmt\Class_::MODIFIER_READONLY);
                 $param_storage->promoted_property = true;
                 $property_storage->is_promoted = true;
 
                 $property_id = $fq_classlike_name . '::$' . $param_storage->name;
 
-                switch ($param->flags) {
+                switch ($param->flags & \PhpParser\Node\Stmt\Class_::VISIBILITY_MODIFIER_MASK) {
                     case \PhpParser\Node\Stmt\Class_::MODIFIER_PUBLIC:
                         $property_storage->visibility = ClassLikeAnalyzer::VISIBILITY_PUBLIC;
                         $classlike_storage->inheritable_property_ids[$param_storage->name] = $property_id;

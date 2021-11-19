@@ -15,7 +15,7 @@ use const PHP_VERSION;
 trait ValidCodeAnalysisTestTrait
 {
     /**
-     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[],php_version?:string}>
      */
     abstract public function providerValidCodeParse(): iterable;
 
@@ -40,20 +40,14 @@ trait ValidCodeAnalysisTestTrait
         if (strpos($test_name, 'PHP73-') !== false) {
             if (version_compare(PHP_VERSION, '7.3.0', '<')) {
                 $this->markTestSkipped('Test case requires PHP 7.3.');
-
-                return;
             }
         } elseif (strpos($test_name, 'PHP71-') !== false) {
             if (version_compare(PHP_VERSION, '7.1.0', '<')) {
                 $this->markTestSkipped('Test case requires PHP 7.1.');
-
-                return;
             }
         } elseif (strpos($test_name, 'PHP80-') !== false) {
             if (version_compare(PHP_VERSION, '8.0.0', '<')) {
                 $this->markTestSkipped('Test case requires PHP 8.0.');
-
-                return;
             }
         } elseif (strpos($test_name, 'SKIPPED-') !== false) {
             $this->markTestSkipped('Skipped due to a bug.');

@@ -99,6 +99,81 @@ class EnumTest extends TestCase
                 [],
                 '8.1'
             ],
+            'namePropertyFromOutside' => [
+                '<?php
+                    enum Status
+                    {
+                        case DRAFT;
+                        case PUBLISHED;
+                        case ARCHIVED;
+                    }
+                    $a = Status::DRAFT->name;
+                ',
+                'assertions' => [
+                    '$a===' => '"DRAFT"',
+                ],
+                [],
+                '8.1'
+            ],
+            'namePropertyFromInside' => [
+                '<?php
+                    enum Status
+                    {
+                        case DRAFT;
+                        case PUBLISHED;
+                        case ARCHIVED;
+
+                        public function get(): string
+                        {
+                            return $this->name;
+                        }
+                    }
+                ',
+                'assertions' => [],
+                [],
+                '8.1'
+            ],
+            'valuePropertyFromInside' => [
+                '<?php
+                    enum Status: string
+                    {
+                        case DRAFT = "draft";
+                        case PUBLISHED = "published";
+                        case ARCHIVED = "archived";
+
+                        public function get(): string
+                        {
+                            return $this->value;
+                        }
+                    }
+
+                    echo Status::DRAFT->get();
+
+                ',
+                'assertions' => [],
+                [],
+                '8.1'
+            ],
+            'SKIPPED-wildcardEnum' => [
+                '<?php
+                    enum A {
+                        case C_1;
+                        case C_2;
+                        case C_3;
+
+                        /**
+                         * @param self::C_* $i
+                         */
+                        public static function foo(self $i) : void {}
+                    }
+
+                    A::foo(A::C_1);
+                    A::foo(A::C_2);
+                    A::foo(A::C_3);',
+                'assertions' => [],
+                [],
+                '8.1',
+            ],
         ];
     }
 
@@ -284,6 +359,37 @@ class EnumTest extends TestCase
                     }
                 ',
                 'error_message' => 'InvalidEnumCaseValue',
+                [],
+                false,
+                '8.1',
+            ],
+            'propsOnEnum' => [
+                '<?php
+                    enum Status {
+                        public $prop;
+                    }
+                ',
+                'error_message' => 'NoEnumProperties',
+                [],
+                false,
+                '8.1',
+            ],
+            'enumInstantiation' => [
+                '<?php
+                    enum Status {}
+                    new Status;
+                ',
+                'error_message' => 'UndefinedClass',
+                [],
+                false,
+                '8.1',
+            ],
+            'enumsAsAttributes' => [
+                '<?php
+                    #[Attribute(Attribute::TARGET_CLASS)]
+                    enum Status { }
+                    ',
+                'error_message' => 'InvalidAttribute',
                 [],
                 false,
                 '8.1',

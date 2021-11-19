@@ -135,6 +135,7 @@ class ArgumentAnalyzer
             && $arg_value_type->isSingleStringLiteral()
             && !$arg->value instanceof PhpParser\Node\Scalar\MagicConst
             && !$arg->value instanceof PhpParser\Node\Expr\ConstFetch
+            && !$arg->value instanceof PhpParser\Node\Expr\ClassConstFetch
         ) {
             $values = \preg_split('//u', $arg_value_type->getSingleStringLiteral()->value, -1, \PREG_SPLIT_NO_EMPTY);
 
@@ -1500,6 +1501,14 @@ class ArgumentAnalyzer
         if ($statements_analyzer->data_flow_graph instanceof TaintFlowGraph
             && $input_type->isSingle()
             && $input_type->hasLiteralValue()
+        ) {
+            return $input_type;
+        }
+
+        // numeric types can't be tainted
+        if ($statements_analyzer->data_flow_graph instanceof TaintFlowGraph
+            && $input_type->isSingle()
+            && ($input_type->isInt() || $input_type->isFloat())
         ) {
             return $input_type;
         }
