@@ -1,8 +1,11 @@
 <?php
+
 namespace Psalm\Internal\Type;
 
 use Psalm\Aliases;
 use Psalm\Exception\TypeParseTreeException;
+use Psalm\Internal\Type\TypeAlias\InlineTypeAlias;
+use Psalm\Type;
 
 use function array_splice;
 use function array_unshift;
@@ -16,6 +19,9 @@ use function strlen;
 use function strpos;
 use function strtolower;
 
+/**
+ * @internal
+ */
 class TypeTokenizer
 {
     /**
@@ -96,7 +102,6 @@ class TypeTokenizer
      *
      * @return list<array{string, int}>
      *
-     * @psalm-suppress ComplexMethod
      * @psalm-suppress PossiblyUndefinedIntArrayOffset
      */
     public static function tokenize(string $string_type, bool $ignore_space = true): array
@@ -298,15 +303,12 @@ class TypeTokenizer
     }
 
     /**
-     * @param array{int,int}|null   $php_version
-     *
-     *
      * @psalm-pure
      */
     public static function fixScalarTerms(
         string $type_string,
-        ?array $php_version = null
-    ) : string {
+        ?int $analysis_php_version_id = null
+    ): string {
         $type_string_lc = strtolower($type_string);
 
         switch ($type_string_lc) {
@@ -328,14 +330,14 @@ class TypeTokenizer
 
         switch ($type_string) {
             case 'boolean':
-                return $php_version !== null ? $type_string : 'bool';
+                return $analysis_php_version_id !== null ? $type_string : 'bool';
 
             case 'integer':
-                return $php_version !== null ? $type_string : 'int';
+                return $analysis_php_version_id !== null ? $type_string : 'int';
 
             case 'double':
             case 'real':
-                return $php_version !== null ? $type_string : 'float';
+                return $analysis_php_version_id !== null ? $type_string : 'float';
         }
 
         return $type_string;
@@ -477,7 +479,7 @@ class TypeTokenizer
             if (isset($type_aliases[$string_type_token[0]])) {
                 $type_alias = $type_aliases[$string_type_token[0]];
 
-                if ($type_alias instanceof TypeAlias\InlineTypeAlias) {
+                if ($type_alias instanceof InlineTypeAlias) {
                     $replacement_tokens = $type_alias->replacement_tokens;
 
                     array_unshift($replacement_tokens, ['(', $i]);
@@ -491,7 +493,7 @@ class TypeTokenizer
                     $l += $diff;
                 }
             } else {
-                $type_tokens[$i][0] = \Psalm\Type::getFQCLNFromString(
+                $type_tokens[$i][0] = Type::getFQCLNFromString(
                     $string_type_token[0],
                     $aliases
                 );
@@ -502,7 +504,7 @@ class TypeTokenizer
         return $type_tokens;
     }
 
-    public static function clearCache() : void
+    public static function clearCache(): void
     {
         self::$memoized_tokens = [];
     }

@@ -1,15 +1,17 @@
 <?php
+
 namespace Psalm\Tests\Template;
 
 use Psalm\Tests\TestCase;
-use Psalm\Tests\Traits;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use const DIRECTORY_SEPARATOR;
 
 class ClassTemplateTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -2287,6 +2289,7 @@ class ClassTemplateTest extends TestCase
                          * @return static<U>
                          */
                         public function map(callable $callback) {
+                            /** @psalm-suppress RedundantFunctionCall */
                             return new static(array_values(array_map($callback, $this->elements)));
                         }
                     }
@@ -2503,7 +2506,7 @@ class ClassTemplateTest extends TestCase
                         }
                     }',
                 [
-                    '$a' => 'ArrayCollection<empty, empty>'
+                    '$a' => 'ArrayCollection<never, never>'
                 ]
             ],
             'newGenericBecomesPropertyTypeValidArg' => [
@@ -2988,7 +2991,7 @@ class ClassTemplateTest extends TestCase
 
                         /**
                          * @psalm-template TResult
-                         * @psalm-param callable(self::READ_UNCOMMITTED): TResult $readUncommitted
+                         * @psalm-param pure-callable(self::READ_UNCOMMITTED): TResult $readUncommitted
                          * @psalm-return TResult
                          */
                         public function resolve(callable $readUncommitted) {
@@ -3819,7 +3822,7 @@ class ClassTemplateTest extends TestCase
 
                     takesStringCollection($collection);
                     takesIntCollection($collection);',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
             'argumentExpectsFleshOutTIndexedAccess' => [
                 '<?php

@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Type\Atomic;
 
 /**
@@ -13,10 +14,9 @@ class TString extends Scalar
         ?string $namespace,
         array $aliased_classes,
         ?string $this_class,
-        int $php_major_version,
-        int $php_minor_version
+        int $analysis_php_version_id
     ): ?string {
-        return $php_major_version >= 7 ? 'string' : null;
+        return $analysis_php_version_id >= 70000 ? 'string' : null;
     }
 
     public function __toString(): string
@@ -24,7 +24,7 @@ class TString extends Scalar
         return 'string';
     }
 
-    public function getKey(bool $include_extra = true) : string
+    public function getKey(bool $include_extra = true): string
     {
         return 'string';
     }

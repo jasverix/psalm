@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Tests\FileManipulation;
 
 class ReturnTypeManipulationTest extends FileManipulationTestCase
@@ -650,7 +651,7 @@ class ReturnTypeManipulationTest extends FileManipulationTestCase
                     /**
                      * @param string $a
                      *
-                     * @psalm-return array<empty, empty>
+                     * @psalm-return array<never, never>
                      */
                     function get_form_fields(string $a): array {
                         switch($a){

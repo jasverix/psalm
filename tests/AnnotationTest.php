@@ -1,15 +1,19 @@
 <?php
+
 namespace Psalm\Tests;
 
 use Psalm\Config;
 use Psalm\Context;
+use Psalm\Exception\CodeException;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use const DIRECTORY_SEPARATOR;
 
 class AnnotationTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     public function setUp(): void
     {
@@ -18,163 +22,72 @@ class AnnotationTest extends TestCase
         $codebase->reportUnusedVariables();
     }
 
-    public function testPhpStormGenericsWithValidArrayIteratorArgument(): void
+    public function testLessSpecificImplementedReturnTypeWithDocblockOnMultipleLines(): void
     {
-        Config::getInstance()->allow_phpstorm_generics = true;
+        $this->expectException(CodeException::class);
+        $this->expectExceptionMessage('LessSpecificImplementedReturnType - somefile.php:5:');
 
         $this->addFile(
             'somefile.php',
             '<?php
-                function takesString(string $_s): void {}
 
-                /** @param ArrayIterator|string[] $i */
-                function takesArrayIteratorOfString(ArrayIterator $i): void {
-                    $s = $i->offsetGet("a");
-                    takesString($s);
-
-                    foreach ($i as $s2) {
-                        takesString($s2);
-                    }
-                }'
+                /**
+                 * @method int test()
+                 * @method \DateTime modify($modify)
+                 */
+                class WTF extends \DateTime { }'
         );
 
         $this->analyzeFile('somefile.php', new Context());
     }
 
-    public function testPhpStormGenericsWithTypeInSignature(): void
+    public function testLessSpecificImplementedReturnTypeWithDocblockOnMultipleLinesWithMultipleClasses(): void
     {
-        Config::getInstance()->allow_phpstorm_generics = true;
+        $this->expectException(CodeException::class);
+        $this->expectExceptionMessage('LessSpecificImplementedReturnType - somefile.php:15:');
 
         $this->addFile(
             'somefile.php',
             '<?php
-                function a(array|\ArrayObject $_meta = []): void {}'
+
+            class ParentClass
+            {
+                /**
+                 * @return $this
+                 */
+                public function execute()
+                {
+                    return $this;
+                }
+            }
+
+            /**
+             * @method self execute()
+             */
+            class BreakingThings extends ParentClass
+            {
+            }'
         );
 
         $this->analyzeFile('somefile.php', new Context());
     }
 
-    public function testPhpStormGenericsWithValidTraversableArgument(): void
+    public function testLessSpecificImplementedReturnTypeWithDescription(): void
     {
-        Config::getInstance()->allow_phpstorm_generics = true;
+        $this->expectException(CodeException::class);
+        $this->expectExceptionMessage('LessSpecificImplementedReturnType - somefile.php:7:');
 
         $this->addFile(
             'somefile.php',
             '<?php
-                function takesString(string $_s): void {}
-
-                /** @param Traversable|string[] $i */
-                function takesTraversableOfString(Traversable $i): void {
-                    foreach ($i as $s2) {
-                        takesString($s2);
-                    }
-                }'
-        );
-
-        $this->analyzeFile('somefile.php', new Context());
-    }
-
-    public function testPhpStormGenericsWithClassProperty(): void
-    {
-        Config::getInstance()->allow_phpstorm_generics = true;
-
-        $this->addFile(
-            'somefile.php',
-            '<?php
-                /** @psalm-suppress MissingConstructor */
-                class Foo {
-                    /** @var \stdClass[]|\ArrayObject */
-                    public $bar;
-
-                    /**
-                     * @return \stdClass[]|\ArrayObject
-                     */
-                    public function getBar(): \ArrayObject {
-                        return $this->bar;
-                    }
-                }'
-        );
-
-        $this->analyzeFile('somefile.php', new Context());
-    }
-
-    public function testPhpStormGenericsWithGeneratorArray(): void
-    {
-        Config::getInstance()->allow_phpstorm_generics = true;
-
-        $this->addFile(
-            'somefile.php',
-            '<?php
-                class A {
-                    /**
-                     * @return stdClass[]|Generator
-                     */
-                    function getCollection(): Generator
-                    {
-                        yield new stdClass;
-                    }
-                }'
-        );
-
-        $this->analyzeFile('somefile.php', new Context());
-    }
-
-    public function testPhpStormGenericsWithValidIterableArgument(): void
-    {
-        Config::getInstance()->allow_phpstorm_generics = true;
-
-        $this->addFile(
-            'somefile.php',
-            '<?php
-                function takesString(string $_s): void {}
-
-                /** @param iterable|string[] $i */
-                function takesArrayIteratorOfString(iterable $i): void {
-                    foreach ($i as $s2) {
-                        takesString($s2);
-                    }
-                }'
-        );
-
-        $this->analyzeFile('somefile.php', new Context());
-    }
-
-    public function testPhpStormGenericsInvalidArgument(): void
-    {
-        $this->expectException(\Psalm\Exception\CodeException::class);
-        $this->expectExceptionMessage('InvalidScalarArgument');
-
-        Config::getInstance()->allow_phpstorm_generics = true;
-
-        $this->addFile(
-            'somefile.php',
-            '<?php
-                function takesInt(int $_s): void {}
-
-                /** @param ArrayIterator|string[] $i */
-                function takesArrayIteratorOfString(ArrayIterator $i): void {
-                    $s = $i->offsetGet("a");
-                    takesInt($s);
-                }'
-        );
-
-        $this->analyzeFile('somefile.php', new Context());
-    }
-
-    public function testPhpStormGenericsNoTypehint(): void
-    {
-        $this->expectException(\Psalm\Exception\CodeException::class);
-        $this->expectExceptionMessage('PossiblyInvalidMethodCall');
-
-        Config::getInstance()->allow_phpstorm_generics = true;
-
-        $this->addFile(
-            'somefile.php',
-            '<?php
-                /** @param ArrayIterator|string[] $i */
-                function takesArrayIteratorOfString($i): void {
-                    $s = $i->offsetGet("a");
-                }'
+                /**
+                 * test test test
+                 * test rambling text
+                 * test test text
+                 *
+                 * @method \DateTime modify($modify)
+                 */
+                class WTF extends \DateTime { }'
         );
 
         $this->analyzeFile('somefile.php', new Context());
@@ -182,7 +95,7 @@ class AnnotationTest extends TestCase
 
     public function testInvalidParamDefault(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('InvalidParamDefault');
 
         $this->addFile(
@@ -219,7 +132,7 @@ class AnnotationTest extends TestCase
 
     public function testInvalidTypehintParamDefaultButAllowedInConfig(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('InvalidParamDefault');
 
         Config::getInstance()->add_param_default_to_docblock_type = true;
@@ -336,7 +249,7 @@ class AnnotationTest extends TestCase
                      * @psalm-ignore-nullable-return
                      */
                     function makeA() {
-                        return rand(0, 1) ? new A(): null;
+                        return rand(0, 1) ? new A() : null;
                     }
 
                     function takeA(A $_a): void { }
@@ -839,8 +752,8 @@ class AnnotationTest extends TestCase
                     }',
                 [],
                 [
-                    'InvalidDocblock' => \Psalm\Config::REPORT_INFO,
-                    'MissingReturnType' => \Psalm\Config::REPORT_INFO,
+                    'InvalidDocblock' => Config::REPORT_INFO,
+                    'MissingReturnType' => Config::REPORT_INFO,
                 ],
             ],
             'objectWithPropertiesAnnotation' => [
@@ -1456,7 +1369,7 @@ class AnnotationTest extends TestCase
                     }',
                 'error_message' => 'MissingReturnType',
                 [
-                    'InvalidDocblock' => \Psalm\Config::REPORT_INFO,
+                    'InvalidDocblock' => Config::REPORT_INFO,
                 ],
             ],
             'invalidDocblockReturn' => [
@@ -1789,7 +1702,7 @@ class AnnotationTest extends TestCase
 
                     $a = 1;
                     foo($a);',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
             'spreadOperatorByRefAnnotationBadCall2' => [
                 '<?php
@@ -1798,7 +1711,7 @@ class AnnotationTest extends TestCase
 
                     $b = 2;
                     foo($b);',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
             'spreadOperatorByRefAnnotationBadCall3' => [
                 '<?php
@@ -1807,7 +1720,7 @@ class AnnotationTest extends TestCase
 
                     $c = 3;
                     foo($c);',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
             'identifyReturnType' => [
                 '<?php
@@ -1955,8 +1868,24 @@ class AnnotationTest extends TestCase
                     ',
                 'error_message' => 'InvalidDocblock',
             ],
+            'promotedPropertyWithParamDocblockAndSignatureType' => [
+                '<?php
 
+                    class A
+                    {
+                        public function __construct(
+                            /** @var "cti"|"basic"|"teams"|"" */
+                            public string $licenseType = "",
+                        ) {
+                        }
+                    }
 
+                    $a = new A("ladida");
+                    $a->licenseType = "dudidu";
+
+                    echo $a->licenseType;',
+                'error_message' => 'InvalidArgument',
+            ],
         ];
     }
 }

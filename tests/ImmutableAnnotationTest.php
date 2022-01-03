@@ -1,10 +1,14 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 class ImmutableAnnotationTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -520,6 +524,27 @@ class ImmutableAnnotationTest extends TestCase
                         public function get(): int {
                             return $this->i;
                         }
+                    }',
+            ],
+            'allowMutationFreeCallInMutationFreeContext' => [
+                '<?php
+
+                    /**
+                     * @psalm-mutation-free
+                     */
+                    function getData(): array {
+                        /** @var mixed $arr */
+                        $arr = $GLOBALS["cachedData"] ?? [];
+
+                        return is_array($arr) ? $arr : [];
+                    }
+
+                    /**
+                     * @psalm-mutation-free
+                     * @return mixed
+                     */
+                    function getDataItem(string $key) {
+                        return getData()[$key] ?? null;
                     }',
             ],
         ];

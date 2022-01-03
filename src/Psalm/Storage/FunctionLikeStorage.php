@@ -1,9 +1,11 @@
 <?php
+
 namespace Psalm\Storage;
 
 use Psalm\CodeLocation;
 use Psalm\Internal\Analyzer\ClassLikeAnalyzer;
-use Psalm\Type;
+use Psalm\Issue\CodeIssue;
+use Psalm\Type\Union;
 
 use function array_column;
 use function array_fill_keys;
@@ -37,7 +39,7 @@ abstract class FunctionLikeStorage
     public $param_lookup = [];
 
     /**
-     * @var Type\Union|null
+     * @var Union|null
      */
     public $return_type;
 
@@ -47,7 +49,7 @@ abstract class FunctionLikeStorage
     public $return_type_location;
 
     /**
-     * @var Type\Union|null
+     * @var Union|null
      */
     public $signature_return_type;
 
@@ -92,7 +94,7 @@ abstract class FunctionLikeStorage
     public $required_param_count;
 
     /**
-     * @var array<string, Type\Union>
+     * @var array<string, Union>
      */
     public $defined_constants = [];
 
@@ -102,7 +104,7 @@ abstract class FunctionLikeStorage
     public $global_variables = [];
 
     /**
-     * @var array<string, Type\Union>
+     * @var array<string, Union>
      */
     public $global_types = [];
 
@@ -115,14 +117,9 @@ abstract class FunctionLikeStorage
      * function identifier. This allows operations with the same-named template defined
      * across multiple classes and/or functions to not run into trouble.
      *
-     * @var array<string, non-empty-array<string, Type\Union>>|null
+     * @var array<string, non-empty-array<string, Union>>|null
      */
     public $template_types;
-
-    /**
-     * @var array<int, bool>|null
-     */
-    public $template_covariants;
 
     /**
      * @var array<int, Assertion>
@@ -145,7 +142,7 @@ abstract class FunctionLikeStorage
     public $has_visitor_issues = false;
 
     /**
-     * @var list<\Psalm\Issue\CodeIssue>
+     * @var list<CodeIssue>
      */
     public $docblock_issues = [];
 
@@ -208,7 +205,7 @@ abstract class FunctionLikeStorage
     public $removed_taints = [];
 
     /**
-     * @var array<Type\Union>
+     * @var array<Union>
      */
     public $conditionally_removed_taints = [];
 
@@ -249,7 +246,7 @@ abstract class FunctionLikeStorage
         $symbol_text = 'function ' . $this->cased_name . '(' . ($newlines ? "\n" : '') . implode(
             ',' . ($newlines ? "\n" : ' '),
             array_map(
-                function (FunctionLikeParameter $param) use ($newlines) : string {
+                function (FunctionLikeParameter $param) use ($newlines): string {
                     return ($newlines ? '    ' : '') . ($param->type ?: 'mixed') . ' $' . $param->name;
                 },
                 $this->params

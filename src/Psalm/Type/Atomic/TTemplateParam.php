@@ -1,8 +1,10 @@
 <?php
+
 namespace Psalm\Type\Atomic;
 
 use Psalm\Codebase;
 use Psalm\Internal\Type\TemplateResult;
+use Psalm\Type\Atomic;
 use Psalm\Type\Union;
 
 use function array_map;
@@ -11,7 +13,7 @@ use function implode;
 /**
  * denotes a template parameter that has been previously specified in a `@template` tag.
  */
-class TTemplateParam extends \Psalm\Type\Atomic
+class TTemplateParam extends Atomic
 {
     use HasIntersectionTrait;
 
@@ -79,8 +81,7 @@ class TTemplateParam extends \Psalm\Type\Atomic
         ?string $namespace,
         array $aliased_classes,
         ?string $this_class,
-        int $php_major_version,
-        int $php_minor_version
+        int $analysis_php_version_id
     ): ?string {
         return null;
     }
@@ -114,12 +115,12 @@ class TTemplateParam extends \Psalm\Type\Atomic
         return $this->param_name . $intersection_types;
     }
 
-    public function getChildNodes() : array
+    public function getChildNodes(): array
     {
         return [$this->as];
     }
 
-    public function canBeFullyExpressedInPhp(int $php_major_version, int $php_minor_version): bool
+    public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool
     {
         return false;
     }
@@ -127,7 +128,7 @@ class TTemplateParam extends \Psalm\Type\Atomic
     public function replaceTemplateTypesWithArgTypes(
         TemplateResult $template_result,
         ?Codebase $codebase
-    ) : void {
+    ): void {
         $this->replaceIntersectionTemplateTypesWithArgTypes($template_result, $codebase);
     }
 }

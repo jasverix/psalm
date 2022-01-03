@@ -1,23 +1,53 @@
 <?php
+
 namespace Psalm\Internal\Type;
 
 use Psalm\Codebase;
-use Psalm\Type;
+use Psalm\Exception\CircularReferenceException;
+use Psalm\Internal\Type\SimpleAssertionReconciler;
+use Psalm\Internal\Type\SimpleNegatedAssertionReconciler;
+use Psalm\Internal\Type\TypeParser;
 use Psalm\Type\Atomic;
-use Psalm\Type\Atomic\TEmpty;
+use Psalm\Type\Atomic\TArray;
+use Psalm\Type\Atomic\TCallable;
+use Psalm\Type\Atomic\TClassConstant;
+use Psalm\Type\Atomic\TClassString;
+use Psalm\Type\Atomic\TClosure;
+use Psalm\Type\Atomic\TConditional;
+use Psalm\Type\Atomic\TGenericObject;
+use Psalm\Type\Atomic\TInt;
+use Psalm\Type\Atomic\TIntMask;
+use Psalm\Type\Atomic\TIntMaskOf;
+use Psalm\Type\Atomic\TIterable;
+use Psalm\Type\Atomic\TKeyOfClassConstant;
+use Psalm\Type\Atomic\TKeyedArray;
+use Psalm\Type\Atomic\TList;
+use Psalm\Type\Atomic\TLiteralClassString;
+use Psalm\Type\Atomic\TLiteralInt;
 use Psalm\Type\Atomic\TNamedObject;
 use Psalm\Type\Atomic\TNever;
+use Psalm\Type\Atomic\TNull;
+use Psalm\Type\Atomic\TObjectWithProperties;
 use Psalm\Type\Atomic\TTemplateParam;
+use Psalm\Type\Atomic\TTypeAlias;
+use Psalm\Type\Atomic\TValueOfClassConstant;
+use Psalm\Type\Atomic\TVoid;
+use Psalm\Type\Union;
+use ReflectionProperty;
 
 use function array_filter;
+use function array_keys;
+use function array_map;
 use function array_merge;
 use function array_values;
 use function count;
+use function get_class;
 use function is_array;
 use function is_string;
 use function reset;
 use function strpos;
 use function strtolower;
+use function substr;
 
 /**
  * @internal
@@ -25,12 +55,12 @@ use function strtolower;
 class TypeExpander
 {
     /**
-     * @param  string|Type\Atomic\TNamedObject|Type\Atomic\TTemplateParam|null $static_class_type
+     * @param  string|TNamedObject|TTemplateParam|null $static_class_type
      *
      */
     public static function expandUnion(
         Codebase $codebase,
-        Type\Union $return_type,
+        Union $return_type,
         ?string $self_class,
         $static_class_type,
         ?string $parent_class,
@@ -39,7 +69,7 @@ class TypeExpander
         bool $final = false,
         bool $expand_generic = false,
         bool $expand_templates = false
-    ): Type\Union {
+    ): Union {
         $return_type = clone $return_type;
 
         $new_return_type_parts = [];
@@ -74,7 +104,7 @@ class TypeExpander
                 $codebase
             );
         } else {
-            $fleshed_out_type = new Type\Union($new_return_type_parts);
+            $fleshed_out_type = new Union($new_return_type_parts);
         }
 
         $fleshed_out_type->from_docblock = $return_type->from_docblock;
@@ -93,13 +123,13 @@ class TypeExpander
     }
 
     /**
-     * @param  string|Type\Atomic\TNamedObject|Type\Atomic\TTemplateParam|null $static_class_type
+     * @param  string|TNamedObject|TTemplateParam|null $static_class_type
      *
-     * @return Type\Atomic|non-empty-list<Type\Atomic>
+     * @return Atomic|non-empty-list<Atomic>
      */
     public static function expandAtomic(
         Codebase $codebase,
-        Type\Atomic &$return_type,
+        Atomic &$return_type,
         ?string $self_class,
         $static_class_type,
         ?string $parent_class,
@@ -155,7 +185,7 @@ class TypeExpander
             }
         }
 
-        if ($return_type instanceof Type\Atomic\TClassString
+        if ($return_type instanceof TClassString
             && $return_type->as_type
         ) {
             $new_as_type = clone $return_type->as_type;
@@ -177,7 +207,7 @@ class TypeExpander
                 $return_type->as_type = $new_as_type;
                 $return_type->as = $return_type->as_type->value;
             }
-        } elseif ($return_type instanceof Type\Atomic\TTemplateParam) {
+        } elseif ($return_type instanceof TTemplateParam) {
             $new_as_type = self::expandUnion(
                 $codebase,
                 clone $return_type->as,
@@ -198,7 +228,7 @@ class TypeExpander
             $return_type->as = $new_as_type;
         }
 
-        if ($return_type instanceof Type\Atomic\TClassConstant) {
+        if ($return_type instanceof TClassConstant) {
             if ($return_type->fq_classlike_name === 'self' && $self_class) {
                 $return_type->fq_classlike_name = $self_class;
             }
@@ -209,32 +239,29 @@ class TypeExpander
 
             if ($evaluate_class_constants && $codebase->classOrInterfaceOrEnumExists($return_type->fq_classlike_name)) {
                 if (strtolower($return_type->const_name) === 'class') {
-                    return new Type\Atomic\TLiteralClassString($return_type->fq_classlike_name);
+                    return new TLiteralClassString($return_type->fq_classlike_name);
                 }
 
                 $class_storage = $codebase->classlike_storage_provider->get($return_type->fq_classlike_name);
 
                 if (strpos($return_type->const_name, '*') !== false) {
-                    $class_storage = $codebase->classlike_storage_provider->get($return_type->fq_classlike_name);
+                    $matching_constants = array_merge(
+                        array_keys($class_storage->constants),
+                        array_keys($class_storage->enum_cases)
+                    );
 
-                    $matching_constants = \array_keys($class_storage->constants);
-
-                    $const_name_part = \substr($return_type->const_name, 0, -1);
+                    $const_name_part = substr($return_type->const_name, 0, -1);
 
                     if ($const_name_part) {
-                        $matching_constants = \array_filter(
+                        $matching_constants = array_filter(
                             $matching_constants,
                             function ($constant_name) use ($const_name_part): bool {
                                 return $constant_name !== $const_name_part
-                                    && \strpos($constant_name, $const_name_part) === 0;
+                                    && strpos($constant_name, $const_name_part) === 0;
                             }
                         );
                     }
                 } else {
-                    if ($class_storage->is_enum) {
-                        return new Type\Atomic\TEnumCase($return_type->fq_classlike_name, $return_type->const_name);
-                    }
-
                     $matching_constants = [$return_type->const_name];
                 }
 
@@ -245,9 +272,9 @@ class TypeExpander
                         $class_constant = $codebase->classlikes->getClassConstantType(
                             $return_type->fq_classlike_name,
                             $matching_constant,
-                            \ReflectionProperty::IS_PRIVATE
+                            ReflectionProperty::IS_PRIVATE
                         );
-                    } catch (\Psalm\Exception\CircularReferenceException $e) {
+                    } catch (CircularReferenceException $e) {
                         $class_constant = null;
                     }
 
@@ -255,8 +282,8 @@ class TypeExpander
                         if ($class_constant->isSingle()) {
                             $class_constant = clone $class_constant;
 
-                            $matching_constant_types = \array_merge(
-                                \array_values($class_constant->getAtomicTypes()),
+                            $matching_constant_types = array_merge(
+                                array_values($class_constant->getAtomicTypes()),
                                 $matching_constant_types
                             );
                         }
@@ -271,7 +298,7 @@ class TypeExpander
             return $return_type;
         }
 
-        if ($return_type instanceof Type\Atomic\TTypeAlias) {
+        if ($return_type instanceof TTypeAlias) {
             $declaring_fq_classlike_name = $return_type->declaring_fq_classlike_name;
 
             if ($declaring_fq_classlike_name === 'self' && $self_class) {
@@ -323,8 +350,8 @@ class TypeExpander
             return $return_type;
         }
 
-        if ($return_type instanceof Type\Atomic\TKeyOfClassConstant
-            || $return_type instanceof Type\Atomic\TValueOfClassConstant
+        if ($return_type instanceof TKeyOfClassConstant
+            || $return_type instanceof TValueOfClassConstant
         ) {
             if ($return_type->fq_classlike_name === 'self' && $self_class) {
                 $return_type->fq_classlike_name = $self_class;
@@ -335,22 +362,22 @@ class TypeExpander
                     $class_constant_type = $codebase->classlikes->getClassConstantType(
                         $return_type->fq_classlike_name,
                         $return_type->const_name,
-                        \ReflectionProperty::IS_PRIVATE
+                        ReflectionProperty::IS_PRIVATE
                     );
-                } catch (\Psalm\Exception\CircularReferenceException $e) {
+                } catch (CircularReferenceException $e) {
                     $class_constant_type = null;
                 }
 
                 if ($class_constant_type) {
                     foreach ($class_constant_type->getAtomicTypes() as $const_type_atomic) {
-                        if ($const_type_atomic instanceof Type\Atomic\TKeyedArray
-                            || $const_type_atomic instanceof Type\Atomic\TArray
+                        if ($const_type_atomic instanceof TKeyedArray
+                            || $const_type_atomic instanceof TArray
                         ) {
-                            if ($const_type_atomic instanceof Type\Atomic\TKeyedArray) {
+                            if ($const_type_atomic instanceof TKeyedArray) {
                                 $const_type_atomic = $const_type_atomic->getGenericArrayType();
                             }
 
-                            if ($return_type instanceof Type\Atomic\TKeyOfClassConstant) {
+                            if ($return_type instanceof TKeyOfClassConstant) {
                                 return array_values($const_type_atomic->type_params[0]->getAtomicTypes());
                             }
 
@@ -363,9 +390,9 @@ class TypeExpander
             return $return_type;
         }
 
-        if ($return_type instanceof Type\Atomic\TIntMask) {
+        if ($return_type instanceof TIntMask) {
             if (!$evaluate_class_constants) {
-                return new Type\Atomic\TInt();
+                return new TInt();
             }
 
             $potential_ints = [];
@@ -384,23 +411,23 @@ class TypeExpander
                     $expand_templates
                 );
 
-                if (\is_array($new_value_type)) {
+                if (is_array($new_value_type)) {
                     $new_value_type = reset($new_value_type);
                 }
 
-                if (!$new_value_type instanceof Type\Atomic\TLiteralInt) {
-                    return new Type\Atomic\TInt();
+                if (!$new_value_type instanceof TLiteralInt) {
+                    return new TInt();
                 }
 
                 $potential_ints[] = $new_value_type->value;
             }
 
-            return \Psalm\Internal\Type\TypeParser::getComputedIntsFromMask($potential_ints);
+            return TypeParser::getComputedIntsFromMask($potential_ints);
         }
 
-        if ($return_type instanceof Type\Atomic\TIntMaskOf) {
+        if ($return_type instanceof TIntMaskOf) {
             if (!$evaluate_class_constants) {
-                return new Type\Atomic\TInt();
+                return new TInt();
             }
 
             $value_type = $return_type->value;
@@ -419,25 +446,25 @@ class TypeExpander
             );
 
             if (!is_array($new_value_types)) {
-                return new Type\Atomic\TInt();
+                return new TInt();
             }
 
             $potential_ints = [];
 
             foreach ($new_value_types as $new_value_type) {
-                if (!$new_value_type instanceof Type\Atomic\TLiteralInt) {
-                    return new Type\Atomic\TInt();
+                if (!$new_value_type instanceof TLiteralInt) {
+                    return new TInt();
                 }
 
                 $potential_ints[] = $new_value_type->value;
             }
 
-            return \Psalm\Internal\Type\TypeParser::getComputedIntsFromMask($potential_ints);
+            return TypeParser::getComputedIntsFromMask($potential_ints);
         }
 
-        if ($return_type instanceof Type\Atomic\TArray
-            || $return_type instanceof Type\Atomic\TGenericObject
-            || $return_type instanceof Type\Atomic\TIterable
+        if ($return_type instanceof TArray
+            || $return_type instanceof TGenericObject
+            || $return_type instanceof TIterable
         ) {
             foreach ($return_type->type_params as $k => $type_param) {
                 /** @psalm-suppress PropertyTypeCoercion */
@@ -454,7 +481,7 @@ class TypeExpander
                     $expand_templates
                 );
             }
-        } elseif ($return_type instanceof Type\Atomic\TKeyedArray) {
+        } elseif ($return_type instanceof TKeyedArray) {
             foreach ($return_type->properties as &$property_type) {
                 $property_type = self::expandUnion(
                     $codebase,
@@ -469,7 +496,7 @@ class TypeExpander
                     $expand_templates
                 );
             }
-        } elseif ($return_type instanceof Type\Atomic\TList) {
+        } elseif ($return_type instanceof TList) {
             $return_type->type_param = self::expandUnion(
                 $codebase,
                 $return_type->type_param,
@@ -484,7 +511,7 @@ class TypeExpander
             );
         }
 
-        if ($return_type instanceof Type\Atomic\TObjectWithProperties) {
+        if ($return_type instanceof TObjectWithProperties) {
             foreach ($return_type->properties as &$property_type) {
                 $property_type = self::expandUnion(
                     $codebase,
@@ -501,8 +528,8 @@ class TypeExpander
             }
         }
 
-        if ($return_type instanceof Type\Atomic\TCallable
-            || $return_type instanceof Type\Atomic\TClosure
+        if ($return_type instanceof TCallable
+            || $return_type instanceof TClosure
         ) {
             if ($return_type->params) {
                 foreach ($return_type->params as $param) {
@@ -538,7 +565,7 @@ class TypeExpander
             }
         }
 
-        if ($return_type instanceof Type\Atomic\TConditional) {
+        if ($return_type instanceof TConditional) {
             return self::expandConditional(
                 $codebase,
                 $return_type,
@@ -557,12 +584,12 @@ class TypeExpander
     }
 
     /**
-     * @param  string|Type\Atomic\TNamedObject|Type\Atomic\TTemplateParam|null $static_class_type
-     * @return Type\Atomic\TNamedObject|Type\Atomic\TTemplateParam
+     * @param  string|TNamedObject|TTemplateParam|null $static_class_type
+     * @return TNamedObject|TTemplateParam
      */
     private static function expandNamedObject(
         Codebase $codebase,
-        Type\Atomic\TNamedObject $return_type,
+        TNamedObject $return_type,
         ?string $self_class,
         $static_class_type,
         ?string $parent_class,
@@ -570,7 +597,7 @@ class TypeExpander
         bool &$expand_generic = false
     ) {
         if ($expand_generic
-            && \get_class($return_type) === TNamedObject::class
+            && get_class($return_type) === TNamedObject::class
             && !$return_type->extra_types
             && $codebase->classOrInterfaceExists($return_type->value)
         ) {
@@ -580,17 +607,17 @@ class TypeExpander
             );
 
             if ($container_class_storage->template_types
-                && \array_filter(
+                && array_filter(
                     $container_class_storage->template_types,
                     function ($type_map) {
                         return !reset($type_map)->hasMixed();
                     }
                 )
             ) {
-                $return_type = new Type\Atomic\TGenericObject(
+                $return_type = new TGenericObject(
                     $return_type->value,
-                    \array_values(
-                        \array_map(
+                    array_values(
+                        array_map(
                             function ($type_map) {
                                 return clone reset($type_map);
                             },
@@ -610,8 +637,8 @@ class TypeExpander
             if (is_string($static_class_type)) {
                 $return_type->value = $static_class_type;
             } else {
-                if ($return_type instanceof Type\Atomic\TGenericObject
-                    && $static_class_type instanceof Type\Atomic\TGenericObject
+                if ($return_type instanceof TGenericObject
+                    && $static_class_type instanceof TGenericObject
                 ) {
                     $return_type->value = $static_class_type->value;
                 } else {
@@ -623,8 +650,8 @@ class TypeExpander
                 $return_type->was_static = true;
             }
         } elseif ($return_type->was_static
-            && ($static_class_type instanceof Type\Atomic\TNamedObject
-                || $static_class_type instanceof Type\Atomic\TTemplateParam)
+            && ($static_class_type instanceof TNamedObject
+                || $static_class_type instanceof TTemplateParam)
         ) {
             $return_type = clone $return_type;
             $cloned_static = clone $static_class_type;
@@ -655,13 +682,13 @@ class TypeExpander
     }
 
     /**
-     * @param  string|Type\Atomic\TNamedObject|Type\Atomic\TTemplateParam|null $static_class_type
+     * @param  string|TNamedObject|TTemplateParam|null $static_class_type
      *
-     * @return Type\Atomic|non-empty-list<Type\Atomic>
+     * @return Atomic|non-empty-list<Atomic>
      */
     private static function expandConditional(
         Codebase $codebase,
-        Type\Atomic\TConditional $return_type,
+        TConditional $return_type,
         ?string $self_class,
         $static_class_type,
         ?string $parent_class,
@@ -764,7 +791,7 @@ class TypeExpander
                     $codebase
                 );
 
-                $if_conditional_return_type = \Psalm\Internal\Type\SimpleAssertionReconciler::reconcile(
+                $if_conditional_return_type = SimpleAssertionReconciler::reconcile(
                     $assertion,
                     $codebase,
                     $if_conditional_return_type
@@ -782,7 +809,8 @@ class TypeExpander
                     $codebase
                 );
 
-                $else_conditional_return_type = \Psalm\Internal\Type\SimpleNegatedAssertionReconciler::reconcile(
+                $else_conditional_return_type = SimpleNegatedAssertionReconciler::reconcile(
+                    $codebase,
                     $assertion,
                     $else_conditional_return_type
                 );
@@ -798,13 +826,12 @@ class TypeExpander
             );
 
             $number_of_types = count($all_conditional_return_types);
-            // we filter TNever and TEmpty that have no bearing on the return type
+            // we filter TNever that have no bearing on the return type
             if ($number_of_types > 1) {
                 $all_conditional_return_types = array_filter(
                     $all_conditional_return_types,
-                    static function (Atomic $atomic_type) : bool {
-                        return !($atomic_type instanceof TEmpty
-                            || $atomic_type instanceof TNever);
+                    static function (Atomic $atomic_type): bool {
+                        return !$atomic_type instanceof TNever;
                     }
                 );
             }
@@ -814,13 +841,13 @@ class TypeExpander
             if ($number_of_types > 1) {
                 $all_conditional_return_types = array_filter(
                     $all_conditional_return_types,
-                    static function (Atomic $atomic_type) : bool {
-                        return !$atomic_type instanceof Atomic\TVoid;
+                    static function (Atomic $atomic_type): bool {
+                        return !$atomic_type instanceof TVoid;
                     }
                 );
 
                 if (count($all_conditional_return_types) !== $number_of_types) {
-                    $null_type = new Type\Atomic\TNull();
+                    $null_type = new TNull();
                     $null_type->from_docblock = true;
                     $all_conditional_return_types[] = $null_type;
                 }

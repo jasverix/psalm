@@ -1,11 +1,12 @@
 <?php
+
 namespace Psalm\Plugin\Hook;
 
 use PhpParser;
 use Psalm\CodeLocation;
 use Psalm\Context;
 use Psalm\StatementsSource;
-use Psalm\Type;
+use Psalm\Type\Union;
 
 /** @deprecated going to be removed in Psalm 5 */
 interface FunctionReturnTypeProviderInterface
@@ -13,7 +14,7 @@ interface FunctionReturnTypeProviderInterface
     /**
      * @return array<lowercase-string>
      */
-    public static function getFunctionIds() : array;
+    public static function getFunctionIds(): array;
 
     /**
      * Use this hook for providing custom return type logic. If this plugin does not know what a function should
@@ -28,5 +29,5 @@ interface FunctionReturnTypeProviderInterface
         array $call_args,
         Context $context,
         CodeLocation $code_location
-    ): ?Type\Union;
+    ): ?Union;
 }

@@ -1,23 +1,28 @@
 <?php
+
 namespace Psalm\Internal\Provider;
 
+use Closure;
 use Psalm\Context;
 use Psalm\Internal\Provider\PropertyTypeProvider\DomDocumentPropertyTypeProvider;
 use Psalm\Plugin\EventHandler\Event\PropertyTypeProviderEvent;
 use Psalm\Plugin\EventHandler\PropertyTypeProviderInterface;
 use Psalm\Plugin\Hook\PropertyTypeProviderInterface as LegacyPropertyTypeProviderInterface;
 use Psalm\StatementsSource;
-use Psalm\Type;
+use Psalm\Type\Union;
 
 use function is_subclass_of;
 use function strtolower;
 
+/**
+ * @internal
+ */
 class PropertyTypeProvider
 {
     /**
      * @var array<
      *   lowercase-string,
-     *   array<\Closure(PropertyTypeProviderEvent) : ?Type\Union>
+     *   array<Closure(PropertyTypeProviderEvent): ?Union>
      * >
      */
     private static $handlers = [];
@@ -25,13 +30,13 @@ class PropertyTypeProvider
     /**
      * @var array<
      *   lowercase-string,
-     *   array<\Closure(
+     *   array<Closure(
      *     string,
      *     string,
      *     bool,
      *     ?StatementsSource=,
      *     ?Context=
-     *   ) : ?Type\Union>
+     *   ): ?Union>
      * >
      */
     private static $legacy_handlers = [];
@@ -50,13 +55,13 @@ class PropertyTypeProvider
     public function registerClass(string $class): void
     {
         if (is_subclass_of($class, LegacyPropertyTypeProviderInterface::class, true)) {
-            $callable = \Closure::fromCallable([$class, 'getPropertyType']);
+            $callable = Closure::fromCallable([$class, 'getPropertyType']);
 
             foreach ($class::getClassLikeNames() as $fq_classlike_name) {
                 $this->registerLegacyClosure($fq_classlike_name, $callable);
             }
         } elseif (is_subclass_of($class, PropertyTypeProviderInterface::class, true)) {
-            $callable = \Closure::fromCallable([$class, 'getPropertyType']);
+            $callable = Closure::fromCallable([$class, 'getPropertyType']);
 
             foreach ($class::getClassLikeNames() as $fq_classlike_name) {
                 $this->registerClosure($fq_classlike_name, $callable);
@@ -65,28 +70,28 @@ class PropertyTypeProvider
     }
 
     /**
-     * @param \Closure(PropertyTypeProviderEvent) : ?Type\Union $c
+     * @param Closure(PropertyTypeProviderEvent): ?Union $c
      */
-    public function registerClosure(string $fq_classlike_name, \Closure $c): void
+    public function registerClosure(string $fq_classlike_name, Closure $c): void
     {
         self::$handlers[strtolower($fq_classlike_name)][] = $c;
     }
 
     /**
-     * @param \Closure(
+     * @param Closure(
      *     string,
      *     string,
      *     bool,
      *     ?StatementsSource=,
      *     ?Context=
-     *   ) : ?Type\Union $c
+     *   ): ?Union $c
      */
-    public function registerLegacyClosure(string $fq_classlike_name, \Closure $c): void
+    public function registerLegacyClosure(string $fq_classlike_name, Closure $c): void
     {
         self::$legacy_handlers[strtolower($fq_classlike_name)][] = $c;
     }
 
-    public function has(string $fq_classlike_name) : bool
+    public function has(string $fq_classlike_name): bool
     {
         return isset(self::$handlers[strtolower($fq_classlike_name)]) ||
             isset(self::$legacy_handlers[strtolower($fq_classlike_name)]);
@@ -98,7 +103,7 @@ class PropertyTypeProvider
         bool $read_mode,
         ?StatementsSource $source = null,
         ?Context $context = null
-    ): ?Type\Union {
+    ): ?Union {
 
         if ($source) {
             $source->addSuppressedIssues(['NonInvariantDocblockPropertyType']);

@@ -1,5 +1,7 @@
 <?php
 
+use Composer\Autoload\ClassLoader;
+
 return [
     'patchers' => [
         function ($filePath, $prefix, $contents) {
@@ -22,6 +24,13 @@ return [
             return str_replace(
                 '\\'.$prefix.'\Composer\Autoload\ClassLoader',
                 '\Composer\Autoload\ClassLoader',
+                $contents
+            );
+        },
+        function ($filePath, $prefix, $contents) {
+            return str_replace(
+                '\\'.$prefix.'\Composer\InstalledVersions',
+                '\Composer\InstalledVersions',
                 $contents
             );
         },
@@ -79,7 +88,7 @@ return [
         },
     ],
     'whitelist' => [
-        \Composer\Autoload\ClassLoader::class,
+        ClassLoader::class,
         'Psalm\*',
     ],
     'files-whitelist' => [

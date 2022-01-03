@@ -22,11 +22,11 @@
         "ext-libxml": "*",
         "ext-mbstring": "*",
         "ext-tokenizer": "*",
+        "composer-runtime-api": "^2.0.0",
         "amphp/amp": "^2.4.2",
         "amphp/byte-stream": "^1.5",
-        "composer/package-versions-deprecated": "^1.8.0",
         "composer/semver": "^1.4 || ^2.0 || ^3.0",
-        "composer/xdebug-handler": "^1.1 || ^2.0",
+        "composer/xdebug-handler": "^1.1 || ^2.0 || ^3.0",
         "dnoegel/php-xdg-base-dir": "^0.1.1",
         "felixfbecker/advanced-json-rpc": "^3.0.3",
         "felixfbecker/language-server-protocol": "^1.5",
@@ -49,7 +49,7 @@
         "phpmyadmin/sql-parser": "5.1.0||dev-master",
         "phpspec/prophecy": ">=1.9.0",
         "phpunit/phpunit": "^9.0",
-        "psalm/plugin-phpunit": "^0.16",
+        "psalm/plugin-phpunit": "^0.16.1",
         "slevomat/coding-standard": "^7.0",
         "squizlabs/php_codesniffer": "^3.5",
         "symfony/process": "^4.3 || ^5.0 || ^6.0",
@@ -60,6 +60,11 @@
         "ext-curl": "In order to send data to shepherd"
     },
     "config": {
+        "allow-plugins": {
+            "bamarni/composer-bin-plugin": true,
+            "composer/package-versions-deprecated": true,
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        },
         "optimize-autoloader": true,
         "sort-packages": true,
         "platform-check": false
@@ -77,7 +82,6 @@
             "Psalm\\": "src/Psalm/"
         },
         "files": [
-            "src/functions.php",
             "src/spl_object_id.php"
         ]
     },
@@ -102,17 +106,26 @@
         "psalter"
     ],
     "scripts": {
-        "all-tests": [
-            "phpcs",
-            "./psalm --find-dead-code",
-            "phpunit"
-        ],
-        "psalm": "./psalm --find-dead-code",
         "cs": "phpcs -p",
         "cs-fix": "phpcbf -p",
+        "lint": "parallel-lint ./src ./tests",
+        "phpunit": "paratest --runner=WrapperRunner",
+        "phpunit-std": "phpunit",
+        "psalm": "@php ./psalm --find-dead-code",
         "tests": [
-            "phpcs",
-            "phpunit"
+            "@lint",
+            "@cs",
+            "@psalm",
+            "@phpunit"
         ]
+    },
+    "scripts-descriptions": {
+        "cs": "Checks that the code conforms to the coding standard.",
+        "cs-fix": "Automatically correct coding standard violations.",
+        "lint": "Runs unit tests.",
+        "phpunit": "Runs unit tests in parallel.",
+        "phpunit-std": "Runs unit tests.",
+        "psalm": "Runs static analysis.",
+        "tests": "Runs all available tests."
     }
 }

@@ -1,5 +1,8 @@
 <?php
+
 namespace Psalm\Internal;
+
+use Psalm\Internal\Algebra;
 
 use function array_diff;
 use function array_keys;
@@ -11,8 +14,10 @@ use function implode;
 use function json_encode;
 use function ksort;
 use function md5;
+use function reset;
 use function sort;
 use function strpos;
+use function substr;
 
 /**
  * @internal
@@ -152,11 +157,11 @@ class Clause
 
                         if ($value[0] === '!') {
                             $negate = true;
-                            $value = \substr($value, 1);
+                            $value = substr($value, 1);
                         }
 
                         if ($value[0] === '=') {
-                            $value = \substr($value, 1);
+                            $value = substr($value, 1);
                         }
 
                         if ($negate) {
@@ -182,10 +187,10 @@ class Clause
             return '(' . implode(') || (', $clause_strings) . ')';
         }
 
-        return \reset($clause_strings);
+        return reset($clause_strings);
     }
 
-    public function makeUnique() : self
+    public function makeUnique(): self
     {
         $possibilities = $this->possibilities;
 
@@ -204,7 +209,7 @@ class Clause
         );
     }
 
-    public function removePossibilities(string $var_id) : ?self
+    public function removePossibilities(string $var_id): ?self
     {
         $possibilities = $this->possibilities;
         unset($possibilities[$var_id]);
@@ -227,7 +232,7 @@ class Clause
     /**
      * @param non-empty-list<string> $clause_var_possibilities
      */
-    public function addPossibilities(string $var_id, array $clause_var_possibilities) : self
+    public function addPossibilities(string $var_id, array $clause_var_possibilities): self
     {
         $possibilities = $this->possibilities;
         $possibilities[$var_id] = $clause_var_possibilities;
@@ -243,7 +248,7 @@ class Clause
         );
     }
 
-    public function calculateNegation() : self
+    public function calculateNegation(): self
     {
         if ($this->impossibilities !== null) {
             return $this;
@@ -260,7 +265,7 @@ class Clause
                     || strpos($type, '(')
                     || strpos($type, 'getclass-')
                 ) {
-                    $impossibility[] = \Psalm\Internal\Algebra::negateType($type);
+                    $impossibility[] = Algebra::negateType($type);
                 }
             }
 

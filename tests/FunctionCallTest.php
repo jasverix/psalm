@@ -1,12 +1,18 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Config;
+use Psalm\Context;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use const DIRECTORY_SEPARATOR;
 
 class FunctionCallTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -42,9 +48,9 @@ class FunctionCallTest extends TestCase
                     $c = $_GET["c"];
                     $c = is_numeric($c) ? abs($c) : null;',
                 'assertions' => [
-                    '$a' => 'int',
+                    '$a' => 'int|positive-int',
                     '$b' => 'float',
-                    '$c' => 'float|int|null',
+                    '$c' => 'float|int|null|positive-int',
                 ],
                 'error_levels' => ['MixedAssignment', 'MixedArgument'],
             ],
@@ -182,7 +188,7 @@ class FunctionCallTest extends TestCase
                         exit;
                     }',
                     'assertions' => [
-                        '$a' => 'array<empty, empty>',
+                        '$a' => 'array<never, never>',
                     ],
             ],
             'byRefAfterCallable' => [
@@ -1160,7 +1166,7 @@ class FunctionCallTest extends TestCase
                 '<?php
                     /**
                      * @psalm-pure
-                     * @param array<empty, empty> $x
+                     * @param array<never, never> $x
                      * @return 0
                      */
                     function example($x) : int {
@@ -1282,6 +1288,13 @@ class FunctionCallTest extends TestCase
 
                     takesInt(preg_match("{foo}", "foo"));',
             ],
+            'pregMatch2' => [
+                '<?php
+                    $r = preg_match("{foo}", "foo");',
+                'assertions' => [
+                    '$r===' => '0|1|false',
+                ],
+            ],
             'pregMatchWithMatches' => [
                 '<?php
                     /** @param string[] $matches */
@@ -1290,6 +1303,14 @@ class FunctionCallTest extends TestCase
                     preg_match("{foo}", "foo", $matches);
 
                     takesMatches($matches);',
+            ],
+            'pregMatchWithMatches2' => [
+                '<?php
+                    $r = preg_match("{foo}", "foo", $matches);',
+                'assertions' => [
+                    '$r===' => '0|1|false',
+                    '$matches===' => 'array<array-key, string>',
+                ],
             ],
             'pregMatchWithOffset' => [
                 '<?php
@@ -1300,17 +1321,45 @@ class FunctionCallTest extends TestCase
 
                     takesMatches($matches);',
             ],
+            'pregMatchWithOffset2' => [
+                '<?php
+                    $r = preg_match("{foo}", "foo", $matches, 0, 10);',
+                'assertions' => [
+                    '$r===' => '0|1|false',
+                    '$matches===' => 'array<array-key, string>',
+                ],
+            ],
             'pregMatchWithFlags' => [
                 '<?php
                     function takesInt(int $i) : void {}
 
                     if (preg_match("{foo}", "this is foo", $matches, PREG_OFFSET_CAPTURE)) {
-                        /**
-                         * @psalm-suppress MixedArrayAccess
-                         * @psalm-suppress MixedArgument
-                         */
                         takesInt($matches[0][1]);
                     }',
+            ],
+            'pregMatchWithFlagOffsetCapture' => [
+                '<?php
+                    $r = preg_match("{foo}", "foo", $matches, PREG_OFFSET_CAPTURE);',
+                'assertions' => [
+                    '$r===' => '0|1|false',
+                    '$matches===' => 'array<array-key, array{string, int}>',
+                ],
+            ],
+            'PHP72-pregMatchWithFlagUnmatchedAsNull' => [
+                '<?php
+                    $r = preg_match("{foo}", "foo", $matches, PREG_UNMATCHED_AS_NULL);',
+                'assertions' => [
+                    '$r===' => '0|1|false',
+                    '$matches===' => 'array<array-key, null|string>',
+                ],
+            ],
+            'PHP72-pregMatchWithFlagOffsetCaptureAndUnmatchedAsNull' => [
+                '<?php
+                    $r = preg_match("{foo}", "foo", $matches, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL);',
+                'assertions' => [
+                    '$r===' => '0|1|false',
+                    '$matches===' => 'array<array-key, array{null|string, int}>',
+                ],
             ],
             'pregReplaceCallback' => [
                 '<?php
@@ -1329,8 +1378,6 @@ class FunctionCallTest extends TestCase
                 '<?php
                     /**
                      * @param string[] $ids
-                     * @psalm-suppress MissingClosureReturnType
-                     * @psalm-suppress MixedArgumentTypeCoercion
                      */
                     function(array $ids): array {
                         return \preg_replace_callback(
@@ -1449,7 +1496,10 @@ class FunctionCallTest extends TestCase
             ],
             'writeArgsAllowed' => [
                 '<?php
-                    /** @return false|int */
+                    /**
+                     * @param 0|256|512|768 $flags
+                     * @return false|int
+                     */
                     function safeMatch(string $pattern, string $subject, ?array $matches = null, int $flags = 0) {
                         return \preg_match($pattern, $subject, $matches, $flags);
                     }
@@ -1696,6 +1746,32 @@ class FunctionCallTest extends TestCase
                 [],
                 '8.1',
             ],
+            'count_charsProducesArrayOrString' => [
+                '<?php
+                    $a = count_chars("foo");
+                    $b = count_chars("foo", 1);
+                    $c = count_chars("foo", 2);
+                    $d = count_chars("foo", 3);
+                    $e = count_chars("foo", 4);
+                ',
+                'assertions' => [
+                    '$a===' => 'array<int, int>',
+                    '$b===' => 'array<int, int>',
+                    '$c===' => 'array<int, int>',
+                    '$d===' => 'string',
+                    '$e===' => 'string',
+                ],
+                [],
+                '8.1',
+            ],
+            'number_formatNamedArgument' => [
+                '<?php
+                    echo number_format(10.363, 1, thousands_separator: " ");
+                ',
+                [],
+                [],
+                '8.0',
+            ],
         ];
     }
 
@@ -1865,7 +1941,7 @@ class FunctionCallTest extends TestCase
                     }
 
                     a(["a" => "hello"]);',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
             'objectLikeKeyChecksAgainstDifferentTKeyedArray' => [
                 '<?php
@@ -2227,12 +2303,25 @@ class FunctionCallTest extends TestCase
                     takesAString(false);',
                 'error_message' => 'InvalidArgument'
             ],
+            'getClassWithoutArgsOutsideClass' => [
+                '<?php
+
+                    echo get_class();',
+                'error_message' => 'TooFewArguments',
+            ],
+            'count_charsWithInvalidMode' => [
+                '<?php
+                    function scope(int $mode){
+                        $a = count_chars("foo", $mode);
+                    }',
+                'error_message' => 'ArgumentTypeCoercion',
+            ],
         ];
     }
 
     public function testTriggerErrorDefault(): void
     {
-        $config = \Psalm\Config::getInstance();
+        $config = Config::getInstance();
         $config->trigger_error_exits = 'default';
 
         $this->addFile(
@@ -2258,12 +2347,12 @@ class FunctionCallTest extends TestCase
         //will only pass if no exception is thrown
         $this->assertTrue(true);
 
-        $this->analyzeFile('somefile.php', new \Psalm\Context());
+        $this->analyzeFile('somefile.php', new Context());
     }
 
     public function testTriggerErrorAlways(): void
     {
-        $config = \Psalm\Config::getInstance();
+        $config = Config::getInstance();
         $config->trigger_error_exits = 'always';
 
         $this->addFile(
@@ -2282,12 +2371,12 @@ class FunctionCallTest extends TestCase
         //will only pass if no exception is thrown
         $this->assertTrue(true);
 
-        $this->analyzeFile('somefile.php', new \Psalm\Context());
+        $this->analyzeFile('somefile.php', new Context());
     }
 
     public function testTriggerErrorNever(): void
     {
-        $config = \Psalm\Config::getInstance();
+        $config = Config::getInstance();
         $config->trigger_error_exits = 'never';
 
         $this->addFile(
@@ -2306,6 +2395,6 @@ class FunctionCallTest extends TestCase
         //will only pass if no exception is thrown
         $this->assertTrue(true);
 
-        $this->analyzeFile('somefile.php', new \Psalm\Context());
+        $this->analyzeFile('somefile.php', new Context());
     }
 }

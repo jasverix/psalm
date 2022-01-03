@@ -1,18 +1,22 @@
 <?php
+
 namespace Psalm\Tests;
 
 use Psalm\Config;
 use Psalm\Context;
+use Psalm\Exception\CodeException;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 class ClassLikeStringTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     public function testDontAllowStringStandInForNewClass(): void
     {
         $this->expectExceptionMessage('InvalidStringClass');
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         Config::getInstance()->allow_string_standin_for_class = false;
 
         $this->addFile(
@@ -31,7 +35,7 @@ class ClassLikeStringTest extends TestCase
     public function testDontAllowStringStandInForStaticMethodCall(): void
     {
         $this->expectExceptionMessage('InvalidStringClass');
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         Config::getInstance()->allow_string_standin_for_class = false;
 
         $this->addFile(

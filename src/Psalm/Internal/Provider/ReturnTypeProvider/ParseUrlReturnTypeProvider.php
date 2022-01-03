@@ -1,9 +1,19 @@
 <?php
+
 namespace Psalm\Internal\Provider\ReturnTypeProvider;
 
+use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\Type\Comparator\UnionTypeComparator;
 use Psalm\Plugin\EventHandler\Event\FunctionReturnTypeProviderEvent;
+use Psalm\Plugin\EventHandler\FunctionReturnTypeProviderInterface;
 use Psalm\Type;
+use Psalm\Type\Atomic\TFalse;
+use Psalm\Type\Atomic\TInt;
+use Psalm\Type\Atomic\TKeyedArray;
+use Psalm\Type\Atomic\TLiteralInt;
+use Psalm\Type\Atomic\TNull;
+use Psalm\Type\Atomic\TString;
+use Psalm\Type\Union;
 
 use function count;
 
@@ -16,21 +26,24 @@ use const PHP_URL_QUERY;
 use const PHP_URL_SCHEME;
 use const PHP_URL_USER;
 
-class ParseUrlReturnTypeProvider implements \Psalm\Plugin\EventHandler\FunctionReturnTypeProviderInterface
+/**
+ * @internal
+ */
+class ParseUrlReturnTypeProvider implements FunctionReturnTypeProviderInterface
 {
     /**
      * @return array<lowercase-string>
      */
-    public static function getFunctionIds() : array
+    public static function getFunctionIds(): array
     {
         return ['parse_url'];
     }
 
-    public static function getFunctionReturnType(FunctionReturnTypeProviderEvent $event) : Type\Union
+    public static function getFunctionReturnType(FunctionReturnTypeProviderEvent $event): Union
     {
         $statements_source = $event->getStatementsSource();
         $call_args = $event->getCallArgs();
-        if (!$statements_source instanceof \Psalm\Internal\Analyzer\StatementsAnalyzer) {
+        if (!$statements_source instanceof StatementsAnalyzer) {
             return Type::getMixed();
         }
 
@@ -39,18 +52,18 @@ class ParseUrlReturnTypeProvider implements \Psalm\Plugin\EventHandler\FunctionR
                 if (!$component_type->hasMixed()) {
                     $codebase = $statements_source->getCodebase();
 
-                    $acceptable_string_component_type = new Type\Union([
-                        new Type\Atomic\TLiteralInt(PHP_URL_SCHEME),
-                        new Type\Atomic\TLiteralInt(PHP_URL_USER),
-                        new Type\Atomic\TLiteralInt(PHP_URL_PASS),
-                        new Type\Atomic\TLiteralInt(PHP_URL_HOST),
-                        new Type\Atomic\TLiteralInt(PHP_URL_PATH),
-                        new Type\Atomic\TLiteralInt(PHP_URL_QUERY),
-                        new Type\Atomic\TLiteralInt(PHP_URL_FRAGMENT),
+                    $acceptable_string_component_type = new Union([
+                        new TLiteralInt(PHP_URL_SCHEME),
+                        new TLiteralInt(PHP_URL_USER),
+                        new TLiteralInt(PHP_URL_PASS),
+                        new TLiteralInt(PHP_URL_HOST),
+                        new TLiteralInt(PHP_URL_PATH),
+                        new TLiteralInt(PHP_URL_QUERY),
+                        new TLiteralInt(PHP_URL_FRAGMENT),
                     ]);
 
-                    $acceptable_int_component_type = new Type\Union([
-                        new Type\Atomic\TLiteralInt(PHP_URL_PORT),
+                    $acceptable_int_component_type = new Union([
+                        new TLiteralInt(PHP_URL_PORT),
                     ]);
 
                     if (UnionTypeComparator::isContainedBy(
@@ -58,10 +71,10 @@ class ParseUrlReturnTypeProvider implements \Psalm\Plugin\EventHandler\FunctionR
                         $component_type,
                         $acceptable_string_component_type
                     )) {
-                        $nullable_falsable_string = new Type\Union([
-                            new Type\Atomic\TString,
-                            new Type\Atomic\TFalse,
-                            new Type\Atomic\TNull,
+                        $nullable_falsable_string = new Union([
+                            new TString,
+                            new TFalse,
+                            new TNull,
                         ]);
 
                         $codebase = $statements_source->getCodebase();
@@ -82,10 +95,10 @@ class ParseUrlReturnTypeProvider implements \Psalm\Plugin\EventHandler\FunctionR
                         $component_type,
                         $acceptable_int_component_type
                     )) {
-                        $nullable_falsable_int = new Type\Union([
-                            new Type\Atomic\TInt,
-                            new Type\Atomic\TFalse,
-                            new Type\Atomic\TNull,
+                        $nullable_falsable_int = new Union([
+                            new TInt,
+                            new TFalse,
+                            new TNull,
                         ]);
 
                         $codebase = $statements_source->getCodebase();
@@ -103,10 +116,10 @@ class ParseUrlReturnTypeProvider implements \Psalm\Plugin\EventHandler\FunctionR
                 }
             }
 
-            $nullable_string_or_int = new Type\Union([
-                new Type\Atomic\TString,
-                new Type\Atomic\TInt,
-                new Type\Atomic\TNull,
+            $nullable_string_or_int = new Union([
+                new TString,
+                new TInt,
+                new TNull,
             ]);
 
             $codebase = $statements_source->getCodebase();
@@ -133,9 +146,9 @@ class ParseUrlReturnTypeProvider implements \Psalm\Plugin\EventHandler\FunctionR
             $component_type->possibly_undefined = true;
         }
 
-        $return_type = new Type\Union([
-            new Type\Atomic\TKeyedArray($component_types),
-            new Type\Atomic\TFalse(),
+        $return_type = new Union([
+            new TKeyedArray($component_types),
+            new TFalse(),
         ]);
 
         if ($statements_source->getCodebase()->config->ignore_internal_falsable_issues) {

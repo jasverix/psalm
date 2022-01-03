@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 /**
  * PHP Polyfill for spl_object_id() for PHP <= 7.1
@@ -14,7 +16,7 @@ if (!function_exists('spl_object_id')) {
          * @param object $object
          * @return int The object id
          */
-        function spl_object_id($object) : int
+        function spl_object_id($object): int
         {
             return runkit_object_id($object);
         }
@@ -25,7 +27,7 @@ if (!function_exists('spl_object_id')) {
          * @param object $object
          * @return int (The object id, XORed with a random number)
          */
-        function spl_object_id($object) : int
+        function spl_object_id($object): int
         {
             $hash = spl_object_hash($object);
             // Fit this into a php long (32-bit or 64-bit signed int).
@@ -40,7 +42,7 @@ if (!function_exists('spl_object_id')) {
          * @param object $object
          * @return int (The object id, XORed with a random number)
          */
-        function spl_object_id($object) : int
+        function spl_object_id($object): int
         {
             $hash = spl_object_hash($object);
             // Fit this into a php long (32-bit or 64-bit signed int).

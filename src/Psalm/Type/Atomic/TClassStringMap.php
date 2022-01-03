@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Type\Atomic;
 
 use Psalm\Codebase;
@@ -8,6 +9,13 @@ use Psalm\Internal\Type\TemplateResult;
 use Psalm\Internal\Type\TemplateStandinTypeReplacer;
 use Psalm\Type;
 use Psalm\Type\Atomic;
+use Psalm\Type\Atomic\TArray;
+use Psalm\Type\Atomic\TGenericObject;
+use Psalm\Type\Atomic\TIterable;
+use Psalm\Type\Atomic\TKeyedArray;
+use Psalm\Type\Atomic\TList;
+use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TTemplateParamClass;
 use Psalm\Type\Union;
 
 use function get_class;
@@ -16,7 +24,7 @@ use function get_class;
  * Represents an array where the type of each value
  * is a function of its string key value
  */
-class TClassStringMap extends \Psalm\Type\Atomic
+class TClassStringMap extends Atomic
 {
     /**
      * @var string
@@ -118,13 +126,12 @@ class TClassStringMap extends \Psalm\Type\Atomic
         ?string $namespace,
         array $aliased_classes,
         ?string $this_class,
-        int $php_major_version,
-        int $php_minor_version
+        int $analysis_php_version_id
     ): string {
         return 'array';
     }
 
-    public function canBeFullyExpressedInPhp(int $php_major_version, int $php_minor_version): bool
+    public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool
     {
         return false;
     }
@@ -145,26 +152,26 @@ class TClassStringMap extends \Psalm\Type\Atomic
         bool $replace = true,
         bool $add_lower_bound = false,
         int $depth = 0
-    ) : Atomic {
+    ): Atomic {
         $map = clone $this;
 
         foreach ([Type::getString(), $map->value_param] as $offset => $type_param) {
             $input_type_param = null;
 
-            if (($input_type instanceof Atomic\TGenericObject
-                    || $input_type instanceof Atomic\TIterable
-                    || $input_type instanceof Atomic\TArray)
+            if (($input_type instanceof TGenericObject
+                    || $input_type instanceof TIterable
+                    || $input_type instanceof TArray)
                 &&
                     isset($input_type->type_params[$offset])
             ) {
                 $input_type_param = clone $input_type->type_params[$offset];
-            } elseif ($input_type instanceof Atomic\TKeyedArray) {
+            } elseif ($input_type instanceof TKeyedArray) {
                 if ($offset === 0) {
                     $input_type_param = $input_type->getGenericKeyType();
                 } else {
                     $input_type_param = $input_type->getGenericValueType();
                 }
-            } elseif ($input_type instanceof Atomic\TList) {
+            } elseif ($input_type instanceof TList) {
                 if ($offset === 0) {
                     continue;
                 }
@@ -198,7 +205,7 @@ class TClassStringMap extends \Psalm\Type\Atomic
     public function replaceTemplateTypesWithArgTypes(
         TemplateResult $template_result,
         ?Codebase $codebase
-    ) : void {
+    ): void {
         TemplateInferredTypeReplacer::replace(
             $this->value_param,
             $template_result,
@@ -206,7 +213,7 @@ class TClassStringMap extends \Psalm\Type\Atomic
         );
     }
 
-    public function getChildNodes() : array
+    public function getChildNodes(): array
     {
         return [$this->value_param];
     }
@@ -229,9 +236,9 @@ class TClassStringMap extends \Psalm\Type\Atomic
         return $this->getKey();
     }
 
-    public function getStandinKeyParam() : Type\Union
+    public function getStandinKeyParam(): Union
     {
-        return new Type\Union([
+        return new Union([
             new TTemplateParamClass(
                 $this->param_name,
                 $this->as_type->value ?? 'object',

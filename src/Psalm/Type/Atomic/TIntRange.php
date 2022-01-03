@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Type\Atomic;
 
 use function max;
@@ -37,7 +38,7 @@ class TIntRange extends TInt
         return 'int<' . ($this->min_bound ?? 'min') . ', ' . ($this->max_bound ?? 'max') . '>';
     }
 
-    public function canBeFullyExpressedInPhp(int $php_major_version, int $php_minor_version): bool
+    public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool
     {
         return false;
     }
@@ -106,6 +107,10 @@ class TIntRange extends TInt
      */
     public static function convertToIntRange(TInt $int_atomic): TIntRange
     {
+        if ($int_atomic instanceof TIntRange) {
+            return $int_atomic;
+        }
+
         if ($int_atomic instanceof TPositiveInt) {
             return new TIntRange(1, null);
         }

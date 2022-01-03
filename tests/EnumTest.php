@@ -1,10 +1,14 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 class EnumTest extends TestCase
 {
-    use Traits\ValidCodeAnalysisTestTrait;
-    use Traits\InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -123,6 +127,9 @@ class EnumTest extends TestCase
                         case PUBLISHED;
                         case ARCHIVED;
 
+                        /**
+                         * @return non-empty-string
+                         */
                         public function get(): string
                         {
                             return $this->name;
@@ -154,7 +161,7 @@ class EnumTest extends TestCase
                 [],
                 '8.1'
             ],
-            'SKIPPED-wildcardEnum' => [
+            'wildcardEnumAsParam' => [
                 '<?php
                     enum A {
                         case C_1;
@@ -171,6 +178,196 @@ class EnumTest extends TestCase
                     A::foo(A::C_2);
                     A::foo(A::C_3);',
                 'assertions' => [],
+                [],
+                '8.1',
+            ],
+            'wildcardEnumAsReturn' => [
+                '<?php
+                    enum E {
+                        const A = 1;
+                        case B;
+                    }
+
+                    /** @return E::* */
+                    function f(): mixed {
+                        return E::B;
+                    }',
+                'assertions' => [],
+                [],
+                '8.1',
+            ],
+            'wildcardConstantsOnEnum' => [
+                '<?php
+                    enum A {
+                        const C_1 = 1;
+                        const C_2 = 2;
+                        const C_3 = 3;
+
+                        /**
+                         * @param self::C_* $i
+                         */
+                        public static function foo(int $i) : void {}
+                    }
+
+                    A::foo(A::C_1);
+                    A::foo(A::C_2);
+                    A::foo(A::C_3);',
+                'assertions' => [],
+                [],
+                '8.1',
+            ],
+            'constantOfAVariableEnumClassString' => [
+                '<?php
+                    enum A { const C = 3; }
+                    $e = A::class;
+                    $_z = $e::C;
+                ',
+                'assertions' => [
+                    '$_z===' => '3',
+                ],
+                [],
+                '8.1',
+            ],
+            'constantOfAVariableEnumInstance' => [
+                '<?php
+                    enum A {
+                        const C = 3;
+                        case AA;
+                    }
+                    $e = A::AA;
+                    $_z = $e::C;
+                ',
+                'assertions' => [
+                    '$_z===' => '3',
+                ],
+                [],
+                '8.1',
+            ],
+            'EnumCaseInAttribute' => [
+                '<?php
+                    class CreateController {
+                        #[Param(paramType: ParamType::FLAG)]
+                        public function actionGet(): void {}
+                    }
+
+                    use Attribute;
+
+                    #[Attribute(Attribute::TARGET_METHOD | Attribute::IS_REPEATABLE)]
+                    class Param {
+                        public function __construct(
+                            public ParamType $paramType = ParamType::PARAM
+                        ) {
+                        }
+                    }
+
+                    enum ParamType {
+                        case FLAG;
+                        case PARAM;
+                    }',
+                'assertions' => [],
+                [],
+                '8.1',
+            ],
+            'casesOnEnumWithNoCasesReturnEmptyArray' => [
+                '<?php
+                    enum Status: int {}
+                    $_z = Status::cases();
+                ',
+                'assertions' => [
+                    '$_z===' => 'array<never, never>',
+                ],
+                [],
+                '8.1',
+            ],
+            'backedEnumFromReturnsInstanceOfThatEnum' => [
+                '<?php
+                    enum Status: int {
+                        case Open = 1;
+                        case Closed = 2;
+                    }
+
+                    function f(): Status {
+                        return Status::from(1);
+                    }
+                ',
+                'assertions' => [],
+                [],
+                '8.1',
+            ],
+            'backedEnumTryFromReturnsInstanceOfThatEnum' => [
+                '<?php
+                    enum Status: int {
+                        case Open = 1;
+                        case Closed = 2;
+                    }
+
+                    function f(): Status {
+                        return Status::tryFrom(rand(1, 10)) ?? Status::Open;
+                    }
+                ',
+                'assertions' => [],
+                [],
+                '8.1',
+            ],
+            'backedEnumFromReturnsSpecificCase' => [
+                '<?php
+                    enum Status: int {
+                        case Open = 1;
+                        case Closed = 2;
+                    }
+
+                    $_z = Status::from(2);
+                ',
+                'assertions' => [
+                    '$_z===' => 'enum(Status::Closed)',
+                ],
+                [],
+                '8.1',
+            ],
+            'backedEnumTryFromReturnsSpecificCase' => [
+                '<?php
+                    enum Status: int {
+                        case Open = 1;
+                        case Closed = 2;
+                    }
+
+                    $_z = Status::tryFrom(2);
+                ',
+                'assertions' => [
+                    '$_z===' => 'enum(Status::Closed)|null',
+                ],
+                [],
+                '8.1',
+            ],
+            'backedEnumFromReturnsUnionOfCases' => [
+                '<?php
+                    enum Status: int {
+                        case Open = 1;
+                        case Closed = 2;
+                        case Busted = 3;
+                    }
+
+                    $_z = Status::from(rand(1, 2));
+                ',
+                'assertions' => [
+                    '$_z===' => 'enum(Status::Closed)|enum(Status::Open)',
+                ],
+                [],
+                '8.1',
+            ],
+            'backedEnumTryFromReturnsUnionOfCases' => [
+                '<?php
+                    enum Status: int {
+                        case Open = 1;
+                        case Closed = 2;
+                        case Busted = 3;
+                    }
+
+                    $_z = Status::tryFrom(rand(1, 2));
+                ',
+                'assertions' => [
+                    '$_z===' => 'enum(Status::Closed)|enum(Status::Open)|null',
+                ],
                 [],
                 '8.1',
             ],
@@ -390,6 +587,22 @@ class EnumTest extends TestCase
                     enum Status { }
                     ',
                 'error_message' => 'InvalidAttribute',
+                [],
+                false,
+                '8.1',
+            ],
+            'deprecatedAttribute' => [
+                '<?php
+                    enum Foo {
+                        case A;
+
+                        #[Psalm\Deprecated]
+                        case B;
+                    }
+
+                    Foo::B;
+                    ',
+                'error_message' => 'DeprecatedConstant',
                 [],
                 false,
                 '8.1',

@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Internal\Algebra;
 
 use PhpParser;
@@ -6,6 +7,7 @@ use Psalm\Codebase;
 use Psalm\FileSource;
 use Psalm\Internal\Algebra;
 use Psalm\Internal\Analyzer\Statements\Expression\AssertionFinder;
+use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\Clause;
 use Psalm\Node\Expr\BinaryOp\VirtualBooleanAnd;
 use Psalm\Node\Expr\BinaryOp\VirtualBooleanOr;
@@ -13,9 +15,13 @@ use Psalm\Node\Expr\VirtualBooleanNot;
 
 use function array_merge;
 use function count;
+use function spl_object_id;
 use function strlen;
 use function substr;
 
+/**
+ * @internal
+ */
 class FormulaGenerator
 {
      /**
@@ -36,7 +42,7 @@ class FormulaGenerator
         ) {
             $left_assertions = self::getFormula(
                 $conditional_object_id,
-                \spl_object_id($conditional->left),
+                spl_object_id($conditional->left),
                 $conditional->left,
                 $this_class_name,
                 $source,
@@ -47,7 +53,7 @@ class FormulaGenerator
 
             $right_assertions = self::getFormula(
                 $conditional_object_id,
-                \spl_object_id($conditional->right),
+                spl_object_id($conditional->right),
                 $conditional->right,
                 $this_class_name,
                 $source,
@@ -67,7 +73,7 @@ class FormulaGenerator
         ) {
             $left_clauses = self::getFormula(
                 $conditional_object_id,
-                \spl_object_id($conditional->left),
+                spl_object_id($conditional->left),
                 $conditional->left,
                 $this_class_name,
                 $source,
@@ -78,7 +84,7 @@ class FormulaGenerator
 
             $right_clauses = self::getFormula(
                 $conditional_object_id,
-                \spl_object_id($conditional->right),
+                spl_object_id($conditional->right),
                 $conditional->right,
                 $this_class_name,
                 $source,
@@ -121,7 +127,7 @@ class FormulaGenerator
             ) {
                 $anded_assertions = null;
 
-                if ($cache && $source instanceof \Psalm\Internal\Analyzer\StatementsAnalyzer) {
+                if ($cache && $source instanceof StatementsAnalyzer) {
                     $anded_assertions = $source->node_data->getAssertions($conditional->expr);
                 }
 
@@ -135,7 +141,7 @@ class FormulaGenerator
                         $cache
                     );
 
-                    if ($cache && $source instanceof \Psalm\Internal\Analyzer\StatementsAnalyzer) {
+                    if ($cache && $source instanceof StatementsAnalyzer) {
                         $source->node_data->setAssertions($conditional->expr, $anded_assertions);
                     }
                 }
@@ -156,7 +162,7 @@ class FormulaGenerator
                             $clauses[] = new Clause(
                                 [$var => $orred_types],
                                 $conditional_object_id,
-                                \spl_object_id($conditional->expr),
+                                spl_object_id($conditional->expr),
                                 false,
                                 true,
                                 $orred_types[0][0] === '='
@@ -188,7 +194,7 @@ class FormulaGenerator
 
                 return self::getFormula(
                     $conditional_object_id,
-                    \spl_object_id($conditional->expr),
+                    spl_object_id($conditional->expr),
                     $and_expr,
                     $this_class_name,
                     $source,
@@ -201,7 +207,7 @@ class FormulaGenerator
             return Algebra::negateFormula(
                 self::getFormula(
                     $conditional_object_id,
-                    \spl_object_id($conditional->expr),
+                    spl_object_id($conditional->expr),
                     $conditional->expr,
                     $this_class_name,
                     $source,
@@ -226,7 +232,7 @@ class FormulaGenerator
                 return Algebra::negateFormula(
                     self::getFormula(
                         $conditional_object_id,
-                        \spl_object_id($conditional->left),
+                        spl_object_id($conditional->left),
                         $conditional->left,
                         $this_class_name,
                         $source,
@@ -246,7 +252,7 @@ class FormulaGenerator
                 return Algebra::negateFormula(
                     self::getFormula(
                         $conditional_object_id,
-                        \spl_object_id($conditional->right),
+                        spl_object_id($conditional->right),
                         $conditional->right,
                         $this_class_name,
                         $source,
@@ -265,7 +271,7 @@ class FormulaGenerator
             ) {
                 return self::getFormula(
                     $conditional_object_id,
-                    \spl_object_id($conditional->left),
+                    spl_object_id($conditional->left),
                     $conditional->left,
                     $this_class_name,
                     $source,
@@ -283,7 +289,7 @@ class FormulaGenerator
             ) {
                 return self::getFormula(
                     $conditional_object_id,
-                    \spl_object_id($conditional->right),
+                    spl_object_id($conditional->right),
                     $conditional->right,
                     $this_class_name,
                     $source,
@@ -309,7 +315,7 @@ class FormulaGenerator
                 return Algebra::negateFormula(
                     self::getFormula(
                         $conditional_object_id,
-                        \spl_object_id($conditional->left),
+                        spl_object_id($conditional->left),
                         $conditional->left,
                         $this_class_name,
                         $source,
@@ -329,7 +335,7 @@ class FormulaGenerator
                 return Algebra::negateFormula(
                     self::getFormula(
                         $conditional_object_id,
-                        \spl_object_id($conditional->right),
+                        spl_object_id($conditional->right),
                         $conditional->right,
                         $this_class_name,
                         $source,
@@ -348,7 +354,7 @@ class FormulaGenerator
             ) {
                 return self::getFormula(
                     $conditional_object_id,
-                    \spl_object_id($conditional->left),
+                    spl_object_id($conditional->left),
                     $conditional->left,
                     $this_class_name,
                     $source,
@@ -366,7 +372,7 @@ class FormulaGenerator
             ) {
                 return self::getFormula(
                     $conditional_object_id,
-                    \spl_object_id($conditional->right),
+                    spl_object_id($conditional->right),
                     $conditional->right,
                     $this_class_name,
                     $source,
@@ -380,7 +386,7 @@ class FormulaGenerator
         if ($conditional instanceof PhpParser\Node\Expr\Cast\Bool_) {
             return self::getFormula(
                 $conditional_object_id,
-                \spl_object_id($conditional->expr),
+                spl_object_id($conditional->expr),
                 $conditional->expr,
                 $this_class_name,
                 $source,
@@ -392,7 +398,7 @@ class FormulaGenerator
 
         $anded_assertions = null;
 
-        if ($cache && $source instanceof \Psalm\Internal\Analyzer\StatementsAnalyzer) {
+        if ($cache && $source instanceof StatementsAnalyzer) {
             $anded_assertions = $source->node_data->getAssertions($conditional);
         }
 
@@ -406,7 +412,7 @@ class FormulaGenerator
                 $cache
             );
 
-            if ($cache && $source instanceof \Psalm\Internal\Analyzer\StatementsAnalyzer) {
+            if ($cache && $source instanceof StatementsAnalyzer) {
                 $source->node_data->setAssertions($conditional, $anded_assertions);
             }
         }

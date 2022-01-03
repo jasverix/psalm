@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Plugin\Hook;
 
 use Psalm\CodeLocation;
@@ -11,7 +12,7 @@ interface PropertyVisibilityProviderInterface
     /**
      * @return array<string>
      */
-    public static function getClassLikeNames() : array;
+    public static function getClassLikeNames(): array;
 
     public static function isPropertyVisible(
         StatementsSource $source,

@@ -1,5 +1,8 @@
 <?php
+
 namespace Psalm\Internal\Fork;
+
+use Composer\XdebugHandler\XdebugHandler;
 
 use function array_filter;
 use function extension_loaded;
@@ -11,7 +14,7 @@ use function preg_replace;
 /**
  * @internal
  */
-class PsalmRestarter extends \Composer\XdebugHandler\XdebugHandler
+class PsalmRestarter extends XdebugHandler
 {
     /**
      * @var bool
@@ -29,6 +32,7 @@ class PsalmRestarter extends \Composer\XdebugHandler\XdebugHandler
     }
 
     /**
+     * No type hint to allow xdebug-handler v1 and v2 usage
      * @param bool $default
      */
     protected function requiresRestart($default): bool
@@ -44,7 +48,8 @@ class PsalmRestarter extends \Composer\XdebugHandler\XdebugHandler
     }
 
     /**
-     * @param mixed $command
+     * No type hint to allow xdebug-handler v1 and v2 usage
+     * @param string|string[] $command
      */
     protected function restart($command): void
     {
@@ -57,7 +62,7 @@ class PsalmRestarter extends \Composer\XdebugHandler\XdebugHandler
             file_put_contents($this->tmpIni, $content);
         }
 
-        /** @psalm-suppress MixedArgument */
+        /** @psalm-suppress PossiblyInvalidArgument */
         parent::restart($command);
     }
 }

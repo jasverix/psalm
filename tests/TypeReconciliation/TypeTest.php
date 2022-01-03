@@ -1,12 +1,17 @@
 <?php
+
 namespace Psalm\Tests\TypeReconciliation;
+
+use Psalm\Tests\TestCase;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use const DIRECTORY_SEPARATOR;
 
-class TypeTest extends \Psalm\Tests\TestCase
+class TypeTest extends TestCase
 {
-    use \Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
-    use \Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -24,7 +29,7 @@ class TypeTest extends \Psalm\Tests\TestCase
                     class B {
                         /** @return void */
                         public function barBar(A $a = null) {
-                            $b = $a ? $a->fooFoo(): null;
+                            $b = $a ? $a->fooFoo() : null;
                         }
                     }',
             ],
@@ -100,7 +105,7 @@ class TypeTest extends \Psalm\Tests\TestCase
                         /** @return void */
                         public function barBar(A $a = null) {
                             $this->a = $a;
-                            $b = $this->a ? $this->a->fooFoo(): null;
+                            $b = $this->a ? $this->a->fooFoo() : null;
                         }
                     }',
             ],
@@ -587,7 +592,7 @@ class TypeTest extends \Psalm\Tests\TestCase
                         $ids = [];
                     }',
                 'assertions' => [
-                    '$ids' => 'array<empty, empty>',
+                    '$ids' => 'array<never, never>',
                 ],
             ],
             'arrayUnionTypeAssertionWithIsArray' => [
@@ -598,7 +603,7 @@ class TypeTest extends \Psalm\Tests\TestCase
                         $ids = [];
                     }',
                 'assertions' => [
-                    '$ids' => 'array<empty, empty>',
+                    '$ids' => 'array<never, never>',
                 ],
             ],
             '2dArrayUnionTypeAssertionWithIsArray' => [

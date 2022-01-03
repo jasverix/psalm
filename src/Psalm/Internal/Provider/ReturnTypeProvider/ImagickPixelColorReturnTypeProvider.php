@@ -1,7 +1,10 @@
 <?php
+
 namespace Psalm\Internal\Provider\ReturnTypeProvider;
 
+use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Plugin\EventHandler\Event\MethodReturnTypeProviderEvent;
+use Psalm\Plugin\EventHandler\MethodReturnTypeProviderInterface;
 use Psalm\Type;
 use Psalm\Type\Atomic\TIntRange;
 use Psalm\Type\Atomic\TKeyedArray;
@@ -11,14 +14,17 @@ use Psalm\Type\Union;
 use function assert;
 use function in_array;
 
-class ImagickPixelColorReturnTypeProvider implements \Psalm\Plugin\EventHandler\MethodReturnTypeProviderInterface
+/**
+ * @internal
+ */
+class ImagickPixelColorReturnTypeProvider implements MethodReturnTypeProviderInterface
 {
-    public static function getClassLikeNames() : array
+    public static function getClassLikeNames(): array
     {
         return ['imagickpixel'];
     }
 
-    public static function getMethodReturnType(MethodReturnTypeProviderEvent $event): ?Type\Union
+    public static function getMethodReturnType(MethodReturnTypeProviderEvent $event): ?Union
     {
         $source = $event->getSource();
         $call_args = $event->getCallArgs();
@@ -28,7 +34,7 @@ class ImagickPixelColorReturnTypeProvider implements \Psalm\Plugin\EventHandler\
             return null;
         }
 
-        if (!$source instanceof \Psalm\Internal\Analyzer\StatementsAnalyzer) {
+        if (!$source instanceof StatementsAnalyzer) {
             return null;
         }
 
