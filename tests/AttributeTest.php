@@ -1,10 +1,14 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 class AttributeTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -95,6 +99,20 @@ class AttributeTest extends TestCase
                         }
                     }',
                 [],
+                [],
+                '8.0'
+            ],
+            'testReflectingAllAttributes' => [
+                '<?php
+                    /** @var class-string $a */
+                    $cs = stdClass::class;
+
+                    $a = new ReflectionClass($cs);
+                    $b = $a->getAttributes();
+                    ',
+                'assertions' => [
+                    '$b' => 'array<array-key, ReflectionAttribute<object>>',
+                ],
                 [],
                 '8.0'
             ],

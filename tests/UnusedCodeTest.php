@@ -1,38 +1,44 @@
 <?php
+
 namespace Psalm\Tests;
 
 use Psalm\Config;
 use Psalm\Context;
+use Psalm\Exception\CodeException;
+use Psalm\Internal\Analyzer\ProjectAnalyzer;
 use Psalm\Internal\Provider\FakeFileProvider;
+use Psalm\Internal\Provider\Providers;
 use Psalm\Internal\RuntimeCaches;
 use Psalm\IssueBuffer;
-use Psalm\Tests\Internal\Provider;
+use Psalm\Tests\Internal\Provider\FakeParserCacheProvider;
 
 use function getcwd;
+use function preg_quote;
+use function strpos;
 
 use const DIRECTORY_SEPARATOR;
 
 class UnusedCodeTest extends TestCase
 {
-    /** @var \Psalm\Internal\Analyzer\ProjectAnalyzer */
+    /** @var ProjectAnalyzer */
     protected $project_analyzer;
 
-    public function setUp() : void
+    public function setUp(): void
     {
         RuntimeCaches::clearAll();
 
         $this->file_provider = new FakeFileProvider();
 
-        $this->project_analyzer = new \Psalm\Internal\Analyzer\ProjectAnalyzer(
+        $this->project_analyzer = new ProjectAnalyzer(
             new TestConfig(),
-            new \Psalm\Internal\Provider\Providers(
+            new Providers(
                 $this->file_provider,
-                new Provider\FakeParserCacheProvider()
+                new FakeParserCacheProvider()
             )
         );
 
         $this->project_analyzer->getCodebase()->reportUnusedCode();
-        $this->project_analyzer->setPhpVersion('7.3');
+        $this->project_analyzer->setPhpVersion('7.3', 'tests');
     }
 
     /**
@@ -45,7 +51,7 @@ class UnusedCodeTest extends TestCase
     public function testValidCode($code, array $error_levels = []): void
     {
         $test_name = $this->getTestName();
-        if (\strpos($test_name, 'SKIPPED-') !== false) {
+        if (strpos($test_name, 'SKIPPED-') !== false) {
             $this->markTestSkipped('Skipped due to a bug.');
         }
 
@@ -56,7 +62,7 @@ class UnusedCodeTest extends TestCase
             $code
         );
 
-        $this->project_analyzer->setPhpVersion('8.0');
+        $this->project_analyzer->setPhpVersion('8.0', 'tests');
 
         foreach ($error_levels as $error_level) {
             $this->project_analyzer->getCodebase()->config->setCustomErrorLevel($error_level, Config::REPORT_SUPPRESS);
@@ -66,7 +72,7 @@ class UnusedCodeTest extends TestCase
 
         $this->project_analyzer->consolidateAnalyzedData();
 
-        \Psalm\IssueBuffer::processUnusedSuppressions($this->project_analyzer->getCodebase()->file_provider);
+        IssueBuffer::processUnusedSuppressions($this->project_analyzer->getCodebase()->file_provider);
     }
 
     /**
@@ -79,12 +85,12 @@ class UnusedCodeTest extends TestCase
      */
     public function testInvalidCode($code, $error_message, $error_levels = []): void
     {
-        if (\strpos($this->getTestName(), 'SKIPPED-') !== false) {
+        if (strpos($this->getTestName(), 'SKIPPED-') !== false) {
             $this->markTestSkipped();
         }
 
-        $this->expectException(\Psalm\Exception\CodeException::class);
-        $this->expectExceptionMessageRegExp('/\b' . \preg_quote($error_message, '/') . '\b/');
+        $this->expectException(CodeException::class);
+        $this->expectExceptionMessageRegExp('/\b' . preg_quote($error_message, '/') . '\b/');
 
         $file_path = self::$src_dir_path . 'somefile.php';
 
@@ -101,7 +107,7 @@ class UnusedCodeTest extends TestCase
 
         $this->project_analyzer->consolidateAnalyzedData();
 
-        \Psalm\IssueBuffer::processUnusedSuppressions($this->project_analyzer->getCodebase()->file_provider);
+        IssueBuffer::processUnusedSuppressions($this->project_analyzer->getCodebase()->file_provider);
     }
 
     public function testSeesClassesUsedAfterUnevaluatedCodeIssue(): void
@@ -1162,12 +1168,44 @@ class UnusedCodeTest extends TestCase
                     $a = new A();
                     echo $a->getVal(null);',
             ],
+            'NotUnusedWhenThrows' => [
+                '<?php
+                    declare(strict_types=1);
+
+                    /** @psalm-immutable */
+                    final class UserList
+                    {
+                        /**
+                         * @throws InvalidArgumentException
+                         */
+                        public function validate(): void
+                        {
+                            // Some validation happens here
+                            throw new \InvalidArgumentException();
+                        }
+                    }
+
+                    $a = new UserList();
+                    $a->validate();
+                    ',
+            ],
             '__halt_compiler_no_usage_check' => [
                 '<?php
                     exit(0);
                     __halt_compiler();
                     foobar
                 ',
+            ],
+            'usedPropertyAsAssignmentKey' => [
+                '<?php
+                    class A {
+                        public string $foo = "bar";
+                        public array $bar = [];
+                    }
+
+                    $a = new A();
+                    $a->bar[$a->foo] = "bar";
+                    print_r($a->bar);',
             ],
         ];
     }
@@ -1201,7 +1239,7 @@ class UnusedCodeTest extends TestCase
                     }
 
                     (new A)->foo(4);',
-                'error_message' => 'PossiblyUnusedParam - src' . \DIRECTORY_SEPARATOR
+                'error_message' => 'PossiblyUnusedParam - src' . DIRECTORY_SEPARATOR
                     . 'somefile.php:4:49 - Param #1 is never referenced in this method',
             ],
             'unusedParam' => [
@@ -1219,6 +1257,30 @@ class UnusedCodeTest extends TestCase
                     }
 
                     $a = new A();',
+                'error_message' => 'PossiblyUnusedProperty',
+                'error_levels' => ['UnusedVariable'],
+            ],
+            'possiblyUnusedPropertyWrittenNeverRead' => [
+                '<?php
+                    class A {
+                        /** @var string */
+                        public $foo = "hello";
+                    }
+
+                    $a = new A();
+                    $a->foo = "bar";',
+                'error_message' => 'PossiblyUnusedProperty',
+                'error_levels' => ['UnusedVariable'],
+            ],
+            'possiblyUnusedPropertyWithArrayWrittenNeverRead' => [
+                '<?php
+                    class A {
+                        /** @var list<string> */
+                        public array $foo = [];
+                    }
+
+                    $a = new A();
+                    $a->foo[] = "bar";',
                 'error_message' => 'PossiblyUnusedProperty',
                 'error_levels' => ['UnusedVariable'],
             ],

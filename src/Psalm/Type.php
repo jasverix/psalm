@@ -1,7 +1,10 @@
 <?php
+
 namespace Psalm;
 
+use InvalidArgumentException;
 use LogicException;
+use Psalm\Config;
 use Psalm\Internal\Type\Comparator\AtomicTypeComparator;
 use Psalm\Internal\Type\Comparator\UnionTypeComparator;
 use Psalm\Internal\Type\TypeCombiner;
@@ -13,7 +16,7 @@ use Psalm\Type\Atomic\TArray;
 use Psalm\Type\Atomic\TArrayKey;
 use Psalm\Type\Atomic\TBool;
 use Psalm\Type\Atomic\TClassString;
-use Psalm\Type\Atomic\TEmpty;
+use Psalm\Type\Atomic\TClosure;
 use Psalm\Type\Atomic\TFalse;
 use Psalm\Type\Atomic\TFloat;
 use Psalm\Type\Atomic\TInt;
@@ -27,6 +30,7 @@ use Psalm\Type\Atomic\TLowercaseString;
 use Psalm\Type\Atomic\TMixed;
 use Psalm\Type\Atomic\TNamedObject;
 use Psalm\Type\Atomic\TNever;
+use Psalm\Type\Atomic\TNonEmptyList;
 use Psalm\Type\Atomic\TNonEmptyLowercaseString;
 use Psalm\Type\Atomic\TNonEmptyString;
 use Psalm\Type\Atomic\TNull;
@@ -34,6 +38,7 @@ use Psalm\Type\Atomic\TNumeric;
 use Psalm\Type\Atomic\TNumericString;
 use Psalm\Type\Atomic\TObject;
 use Psalm\Type\Atomic\TObjectWithProperties;
+use Psalm\Type\Atomic\TPositiveInt;
 use Psalm\Type\Atomic\TResource;
 use Psalm\Type\Atomic\TScalar;
 use Psalm\Type\Atomic\TSingleLetter;
@@ -42,6 +47,7 @@ use Psalm\Type\Atomic\TTemplateParam;
 use Psalm\Type\Atomic\TTrue;
 use Psalm\Type\Atomic\TVoid;
 use Psalm\Type\Union;
+use UnexpectedValueException;
 
 use function array_merge;
 use function array_pop;
@@ -64,18 +70,18 @@ abstract class Type
      * Parses a string type representation
      *
      * @param  array{int,int}|null   $php_version
-     * @param  array<string, array<string, Type\Union>> $template_type_map
+     * @param  array<string, array<string, Union>> $template_type_map
      */
     public static function parseString(
         string $type_string,
-        ?array $php_version = null,
+        ?int $analysis_php_version_id = null,
         array $template_type_map = []
     ): Union {
         return TypeParser::parseTokens(
             TypeTokenizer::tokenize(
                 $type_string
             ),
-            $php_version,
+            $analysis_php_version_id,
             $template_type_map
         );
     }
@@ -83,9 +89,9 @@ abstract class Type
     public static function getFQCLNFromString(
         string $class,
         Aliases $aliases
-    ) : string {
+    ): string {
         if ($class === '') {
-            throw new \InvalidArgumentException('$class cannot be empty');
+            throw new InvalidArgumentException('$class cannot be empty');
         }
 
         if ($class[0] === '\\') {
@@ -122,7 +128,7 @@ abstract class Type
         ?string $this_class,
         bool $allow_self = false,
         bool $was_static = false
-    ) : string {
+    ): string {
         if ($allow_self && $value === $this_class) {
             if ($was_static) {
                 return 'static';
@@ -191,7 +197,7 @@ abstract class Type
 
     public static function getPositiveInt(bool $from_calculation = false): Union
     {
-        $union = new Union([new Type\Atomic\TPositiveInt()]);
+        $union = new Union([new TPositiveInt()]);
         $union->from_calculation = $from_calculation;
 
         return $union;
@@ -230,7 +236,7 @@ abstract class Type
         $type = null;
 
         if ($value !== null) {
-            $config = \Psalm\Config::getInstance();
+            $config = Config::getInstance();
 
             $event = new StringInterpreterEvent($value);
 
@@ -240,7 +246,7 @@ abstract class Type
                 if (strlen($value) < $config->max_string_length) {
                     $type = new TLiteralString($value);
                 } else {
-                    $type = new Type\Atomic\TNonEmptyString();
+                    $type = new TNonEmptyString();
                 }
             }
         }
@@ -299,16 +305,6 @@ abstract class Type
         return new Union([$type]);
     }
 
-    /**
-     * @deprecated will be removed in Psalm 5. See getNever to retrieve a TNever that replaces TEmpty
-     */
-    public static function getEmpty(): Union
-    {
-        $type = new TEmpty();
-
-        return new Union([$type]);
-    }
-
     public static function getNever(): Union
     {
         $type = new TNever();
@@ -343,7 +339,7 @@ abstract class Type
 
     public static function getClosure(): Union
     {
-        $type = new Type\Atomic\TClosure('Closure');
+        $type = new TClosure('Closure');
 
         return new Union([$type]);
     }
@@ -359,8 +355,8 @@ abstract class Type
     {
         $type = new TArray(
             [
-                new Type\Union([new TArrayKey]),
-                new Type\Union([new TMixed]),
+                new Union([new TArrayKey]),
+                new Union([new TMixed]),
             ]
         );
 
@@ -371,26 +367,26 @@ abstract class Type
     {
         $array_type = new TArray(
             [
-                new Type\Union([new TEmpty]),
-                new Type\Union([new TEmpty]),
+                new Union([new TNever()]),
+                new Union([new TNever()]),
             ]
         );
 
-        return new Type\Union([
+        return new Union([
             $array_type,
         ]);
     }
 
     public static function getList(): Union
     {
-        $type = new TList(new Type\Union([new TMixed]));
+        $type = new TList(new Union([new TMixed]));
 
         return new Union([$type]);
     }
 
     public static function getNonEmptyList(): Union
     {
-        $type = new Type\Atomic\TNonEmptyList(new Type\Union([new TMixed]));
+        $type = new TNonEmptyList(new Union([new TMixed]));
 
         return new Union([$type]);
     }
@@ -422,9 +418,9 @@ abstract class Type
     }
 
     /**
-     * @param non-empty-list<Type\Union> $union_types
+     * @param non-empty-list<Union> $union_types
      */
-    public static function combineUnionTypeArray(array $union_types, ?Codebase $codebase) : Type\Union
+    public static function combineUnionTypeArray(array $union_types, ?Codebase $codebase): Union
     {
         $first_type = array_pop($union_types);
 
@@ -451,7 +447,7 @@ abstract class Type
         int $literal_limit = 500
     ): Union {
         if ($type_2 === null && $type_1 === null) {
-            throw new \UnexpectedValueException('At least one type must be provided to combine');
+            throw new UnexpectedValueException('At least one type must be provided to combine');
         }
 
         if ($type_1 === null) {

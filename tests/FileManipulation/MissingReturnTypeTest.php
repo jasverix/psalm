@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Tests\FileManipulation;
 
 class MissingReturnTypeTest extends FileManipulationTestCase
@@ -846,7 +847,7 @@ class MissingReturnTypeTest extends FileManipulationTestCase
                     }',
                 '<?php
                     /**
-                     * @psalm-return array<empty, empty>
+                     * @psalm-return array<never, never>
                      */
                     function foo(): array {
                         return [];

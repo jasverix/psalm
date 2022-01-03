@@ -1,10 +1,14 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 class ArgTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -156,9 +160,9 @@ class ArgTest extends TestCase
                     function foo($b) : void {}
                     foo(null);',
             ],
-            'allowArrayIntScalarForArrayStringWithScalarIgnored' => [
+            'allowArrayIntScalarForArrayStringWithArgumentTypeCoercionIgnored' => [
                 '<?php
-                    /** @param array<int|string> $arr */
+                    /** @param array<array-key> $arr */
                     function foo(array $arr) : void {
                     }
 
@@ -167,10 +171,10 @@ class ArgTest extends TestCase
                       return [];
                     }
 
-                    /** @psalm-suppress InvalidScalarArgument */
+                    /** @psalm-suppress ArgumentTypeCoercion */
                     foo(bar());',
             ],
-            'allowArrayScalarForArrayStringWithScalarIgnored' => [
+            'allowArrayScalarForArrayStringWithArgumentTypeCoercionIgnored' => [
                 '<?php declare(strict_types=1);
                     /** @param array<string> $arr */
                     function foo(array $arr) : void {}
@@ -180,7 +184,7 @@ class ArgTest extends TestCase
                         return [];
                     }
 
-                    /** @psalm-suppress InvalidScalarArgument */
+                    /** @psalm-suppress ArgumentTypeCoercion */
                     foo(bar());',
             ],
             'unpackObjectlikeListArgs' => [
@@ -401,6 +405,19 @@ class ArgTest extends TestCase
                             email: $input["email"],
                         );
                     }',
+                'error_message' => 'InvalidNamedArgument'
+            ],
+            'usePositionalArgAfterNamed' => [
+                '<?php
+                    final class Person
+                    {
+                        public function __construct(
+                            public string $name,
+                            public int $age,
+                        ) { }
+                    }
+
+                    new Person(name: "", 0);',
                 'error_message' => 'InvalidNamedArgument'
             ],
             'useUnpackedInvalidNamedArgument' => [

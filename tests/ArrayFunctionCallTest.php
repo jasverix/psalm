@@ -1,12 +1,16 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use const DIRECTORY_SEPARATOR;
 
 class ArrayFunctionCallTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -568,8 +572,8 @@ class ArrayFunctionCallTest extends TestCase
                     $rightCount = [1, 2, 3];
                     assert (1 > count($rightCount));',
                 'assertions' => [
-                    '$leftCount' => 'array<empty, empty>',
-                    '$rightCount' => 'array<empty, empty>',
+                    '$leftCount' => 'array<never, never>',
+                    '$rightCount' => 'array<never, never>',
                 ],
             ],
             'arrayEmptyArrayAfterCountLessThanEqualToZero' => [
@@ -581,8 +585,8 @@ class ArrayFunctionCallTest extends TestCase
                     $rightCount = [1, 2, 3];
                     assert (0 >= count($rightCount));',
                 'assertions' => [
-                    '$leftCount' => 'array<empty, empty>',
-                    '$rightCount' => 'array<empty, empty>',
+                    '$leftCount' => 'array<never, never>',
+                    '$rightCount' => 'array<never, never>',
                 ],
             ],
             'arrayNotNonEmptyArrayAfterCountGreaterThanEqualToZero' => [
@@ -770,7 +774,7 @@ class ArrayFunctionCallTest extends TestCase
                         }
                     }',
                 'assertions' => [],
-                'error_levels' => ['MixedAssignment', 'MixedArgument', 'MixedArgumentTypeCoercion'],
+                'error_levels' => ['MixedAssignment', 'MixedArgument', 'MixedArgumentTypeCoercion', 'NoValue'],
             ],
             'arrayPopNotNullable' => [
                 '<?php
@@ -1166,7 +1170,7 @@ class ArrayFunctionCallTest extends TestCase
             ],
             'arrayResetEmptyList' => [
                 '<?php
-                    /** @return list<empty> */
+                    /** @return list<never> */
                     function makeArray(): array { return []; }
                     $a = makeArray();
                     $b = reset($a);',
@@ -1242,7 +1246,7 @@ class ArrayFunctionCallTest extends TestCase
             ],
             'arrayEndEmptyList' => [
                 '<?php
-                    /** @return list<empty> */
+                    /** @return list<never> */
                     function makeArray(): array { return []; }
                     $a = makeArray();
                     $b = end($a);',
@@ -2029,7 +2033,7 @@ class ArrayFunctionCallTest extends TestCase
             'arrayShiftOnMixedOrEmptyArray' => [
                 '<?php
                     /**
-                     * @param mixed|array<empty, empty> $lengths
+                     * @param mixed|array<never, never> $lengths
                      */
                     function doStuff($lengths): void {
                         /** @psalm-suppress MixedArgument, MixedAssignment */

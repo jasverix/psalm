@@ -3,21 +3,34 @@
 namespace Psalm\Internal\Type;
 
 use Psalm\CodeLocation;
+use Psalm\Codebase;
+use Psalm\Internal\Codebase\InternalCallMapHandler;
+use Psalm\Issue\DocblockTypeContradiction;
+use Psalm\Issue\RedundantPropertyInitializationCheck;
+use Psalm\Issue\TypeDoesNotContainType;
+use Psalm\IssueBuffer;
 use Psalm\Type;
-use Psalm\Type\Atomic;
 use Psalm\Type\Atomic\Scalar;
 use Psalm\Type\Atomic\TArray;
 use Psalm\Type\Atomic\TArrayKey;
 use Psalm\Type\Atomic\TBool;
 use Psalm\Type\Atomic\TCallable;
-use Psalm\Type\Atomic\TEmpty;
+use Psalm\Type\Atomic\TCallableArray;
+use Psalm\Type\Atomic\TCallableObject;
+use Psalm\Type\Atomic\TCallableString;
 use Psalm\Type\Atomic\TFloat;
+use Psalm\Type\Atomic\TGenericObject;
 use Psalm\Type\Atomic\TInt;
+use Psalm\Type\Atomic\TIntRange;
+use Psalm\Type\Atomic\TIterable;
 use Psalm\Type\Atomic\TKeyedArray;
 use Psalm\Type\Atomic\TList;
+use Psalm\Type\Atomic\TLiteralInt;
+use Psalm\Type\Atomic\TLiteralString;
 use Psalm\Type\Atomic\TLowercaseString;
 use Psalm\Type\Atomic\TMixed;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TNever;
 use Psalm\Type\Atomic\TNonEmptyArray;
 use Psalm\Type\Atomic\TNonEmptyList;
 use Psalm\Type\Atomic\TNonEmptyLowercaseString;
@@ -28,6 +41,7 @@ use Psalm\Type\Atomic\TNonEmptyString;
 use Psalm\Type\Atomic\TNonFalsyString;
 use Psalm\Type\Atomic\TNonspecificLiteralString;
 use Psalm\Type\Atomic\TNumeric;
+use Psalm\Type\Atomic\TPositiveInt;
 use Psalm\Type\Atomic\TScalar;
 use Psalm\Type\Atomic\TString;
 use Psalm\Type\Atomic\TTemplateParam;
@@ -41,26 +55,122 @@ use function max;
 use function strpos;
 use function substr;
 
+/**
+ * @internal
+ */
 class SimpleNegatedAssertionReconciler extends Reconciler
 {
     /**
      * @param  string[]   $suppressed_issues
      * @param  0|1|2      $failed_reconciliation
-     *
-     * @return Type\Union
      */
     public static function reconcile(
+        Codebase $codebase,
         string $assertion,
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key = null,
         bool $negated = false,
         ?CodeLocation $code_location = null,
         array $suppressed_issues = [],
         int &$failed_reconciliation = Reconciler::RECONCILIATION_EMPTY,
         bool $is_equality = false,
-        bool $is_strict_equality = false,
         bool $inside_loop = false
-    ) : ?Type\Union {
+    ): ?Union {
+        if ($assertion === 'isset') {
+            if ($existing_var_type->possibly_undefined) {
+                return Type::getNever();
+            }
+
+            if (!$existing_var_type->isNullable()
+                && $key
+                && strpos($key, '[') === false
+                && (!$existing_var_type->hasMixed() || $existing_var_type->isAlwaysTruthy())
+            ) {
+                if ($code_location) {
+                    if ($existing_var_type->from_static_property) {
+                        IssueBuffer::maybeAdd(
+                            new RedundantPropertyInitializationCheck(
+                                'Static property ' . $key . ' with type '
+                                    . $existing_var_type
+                                    . ' has unexpected isset check — should it be nullable?',
+                                $code_location
+                            ),
+                            $suppressed_issues
+                        );
+                    } elseif ($existing_var_type->from_property) {
+                        IssueBuffer::maybeAdd(
+                            new RedundantPropertyInitializationCheck(
+                                'Property ' . $key . ' with type '
+                                    . $existing_var_type . ' should already be set in the constructor',
+                                $code_location
+                            ),
+                            $suppressed_issues
+                        );
+                    } elseif ($existing_var_type->from_docblock) {
+                        IssueBuffer::maybeAdd(
+                            new DocblockTypeContradiction(
+                                'Cannot resolve types for ' . $key . ' with docblock-defined type '
+                                    . $existing_var_type . ' and !isset assertion',
+                                $code_location,
+                                null
+                            ),
+                            $suppressed_issues
+                        );
+                    } else {
+                        IssueBuffer::maybeAdd(
+                            new TypeDoesNotContainType(
+                                'Cannot resolve types for ' . $key . ' with type '
+                                    . $existing_var_type . ' and !isset assertion',
+                                $code_location,
+                                null
+                            ),
+                            $suppressed_issues
+                        );
+                    }
+                }
+
+                return $existing_var_type->from_docblock
+                    ? Type::getNull()
+                    : Type::getNever();
+            }
+
+            return Type::getNull();
+        }
+
+        if ($assertion === 'array-key-exists') {
+            return Type::getNever();
+        }
+
+        if (strpos($assertion, 'in-array-') === 0) {
+            $assertion = substr($assertion, 9);
+            $new_var_type = Type::parseString($assertion);
+
+            $intersection = Type::intersectUnionTypes(
+                $new_var_type,
+                $existing_var_type,
+                $codebase
+            );
+
+            if ($intersection === null) {
+                if ($key && $code_location) {
+                    self::triggerIssueForImpossible(
+                        $existing_var_type,
+                        $existing_var_type->getId(),
+                        $key,
+                        '!' . $assertion,
+                        true,
+                        $negated,
+                        $code_location,
+                        $suppressed_issues
+                    );
+                }
+
+                $failed_reconciliation = Reconciler::RECONCILIATION_EMPTY;
+            }
+
+            return $existing_var_type;
+        }
+
         if ($assertion === 'object' && !$existing_var_type->hasMixed()) {
             return self::reconcileObject(
                 $existing_var_type,
@@ -178,8 +288,6 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                 $code_location,
                 $suppressed_issues,
                 $failed_reconciliation,
-                $is_equality,
-                $is_strict_equality,
                 false
             );
         }
@@ -264,11 +372,11 @@ class SimpleNegatedAssertionReconciler extends Reconciler
     }
 
     private static function reconcileCallable(
-        Type\Union $existing_var_type
-    ) : Type\Union {
+        Union $existing_var_type
+    ): Union {
         foreach ($existing_var_type->getAtomicTypes() as $atomic_key => $type) {
-            if ($type instanceof Type\Atomic\TLiteralString
-                && \Psalm\Internal\Codebase\InternalCallMapHandler::inCallMap($type->value)
+            if ($type instanceof TLiteralString
+                && InternalCallMapHandler::inCallMap($type->value)
             ) {
                 $existing_var_type->removeType($atomic_key);
             }
@@ -286,14 +394,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param  0|1|2      $failed_reconciliation
      */
     private static function reconcileBool(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_bool_types = [];
         $did_remove_type = false;
@@ -341,7 +449,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_bool_types) {
-            return new Type\Union($non_bool_types);
+            return new Union($non_bool_types);
         }
 
         $failed_reconciliation = Reconciler::RECONCILIATION_EMPTY;
@@ -354,7 +462,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileNonEmptyCountable(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
@@ -362,7 +470,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         int &$failed_reconciliation,
         bool $is_equality,
         ?int $min_count
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $existing_var_atomic_types = $existing_var_type->getAtomicTypes();
 
@@ -370,26 +478,26 @@ class SimpleNegatedAssertionReconciler extends Reconciler
             $array_atomic_type = $existing_var_atomic_types['array'];
             $did_remove_type = false;
 
-            if (($array_atomic_type instanceof Type\Atomic\TNonEmptyArray
-                    || $array_atomic_type instanceof Type\Atomic\TNonEmptyList)
+            if (($array_atomic_type instanceof TNonEmptyArray
+                    || $array_atomic_type instanceof TNonEmptyList)
                 && ($min_count === null
                     || $array_atomic_type->count >= $min_count)
             ) {
                 $did_remove_type = true;
 
                 $existing_var_type->removeType('array');
-            } elseif ($array_atomic_type->getId() !== 'array<empty, empty>') {
+            } elseif ($array_atomic_type->getId() !== 'array<never, never>') {
                 $did_remove_type = true;
 
                 if (!$min_count) {
                     $existing_var_type->addType(new TArray(
                         [
-                            new Type\Union([new TEmpty]),
-                            new Type\Union([new TEmpty]),
+                            new Union([new TNever()]),
+                            new Union([new TNever()]),
                         ]
                     ));
                 }
-            } elseif ($array_atomic_type instanceof Type\Atomic\TKeyedArray) {
+            } elseif ($array_atomic_type instanceof TKeyedArray) {
                 $did_remove_type = true;
 
                 foreach ($array_atomic_type->properties as $property_type) {
@@ -427,14 +535,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileNull(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $did_remove_type = false;
 
@@ -494,14 +602,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileFalse(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $did_remove_type = $existing_var_type->hasScalar();
 
@@ -562,16 +670,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      */
     private static function reconcileFalsyOrEmpty(
         string $assertion,
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
-        bool $is_equality,
-        bool $is_strict_equality,
         bool $recursive_check
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
 
         //empty is used a lot to check for array offset existence, so we have to silent errors a lot
@@ -583,13 +689,13 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         foreach ($existing_var_type->getAtomicTypes() as $existing_var_type_key => $existing_var_type_part) {
             //if any atomic in the union is either always falsy, we remove it. If not always truthy, we mark the check
             //as not redundant.
-            $union = new Union([$existing_var_type_part]);
-            $union->possibly_undefined = $existing_var_type->possibly_undefined;
-            $union->possibly_undefined_from_try = $existing_var_type->possibly_undefined_from_try;
-            if ($union->isAlwaysFalsy()) {
+            if ($existing_var_type_part->isFalsy()) {
                 $did_remove_type = true;
                 $existing_var_type->removeType($existing_var_type_key);
-            } elseif (!$union->isAlwaysTruthy()) {
+            } elseif ($existing_var_type->possibly_undefined
+                || $existing_var_type->possibly_undefined_from_try
+                || !$existing_var_type_part->isTruthy()
+            ) {
                 $did_remove_type = true;
             }
         }
@@ -611,7 +717,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
 
             $failed_reconciliation = 2;
 
-            return Type::getEmpty();
+            return Type::getNever();
         }
 
         if (!$did_remove_type) {
@@ -709,10 +815,10 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                     if ($literal_type->contains(0)) {
                         $existing_var_type->removeType($int_key);
                         if ($literal_type->min_bound === null || $literal_type->min_bound <= -1) {
-                            $existing_var_type->addType(new Type\Atomic\TIntRange($literal_type->min_bound, -1));
+                            $existing_var_type->addType(new TIntRange($literal_type->min_bound, -1));
                         }
                         if ($literal_type->max_bound === null || $literal_type->max_bound >= 1) {
-                            $existing_var_type->addType(new Type\Atomic\TIntRange(1, $literal_type->max_bound));
+                            $existing_var_type->addType(new TIntRange(1, $literal_type->max_bound));
                         }
                     }
                 }
@@ -725,7 +831,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
 
         foreach ($existing_var_type->getAtomicTypes() as $type_key => $existing_var_atomic_type) {
             if ($existing_var_atomic_type instanceof TTemplateParam) {
-                if (!$is_equality && !$existing_var_atomic_type->as->isMixed()) {
+                if (!$existing_var_atomic_type->as->isMixed()) {
                     $template_did_fail = 0;
 
                     $existing_var_atomic_type = clone $existing_var_atomic_type;
@@ -738,8 +844,6 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                         $code_location,
                         $suppressed_issues,
                         $template_did_fail,
-                        $is_equality,
-                        $is_strict_equality,
                         true
                     );
 
@@ -761,14 +865,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileScalar(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_scalar_types = [];
         $did_remove_type = false;
@@ -830,7 +934,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_scalar_types) {
-            $type = new Type\Union($non_scalar_types);
+            $type = new Union($non_scalar_types);
             $type->ignore_falsable_issues = $existing_var_type->ignore_falsable_issues;
             $type->ignore_nullable_issues = $existing_var_type->ignore_nullable_issues;
             $type->from_docblock = $existing_var_type->from_docblock;
@@ -847,14 +951,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileObject(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_object_types = [];
         $did_remove_type = false;
@@ -886,13 +990,13 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                     $non_object_types[] = $type;
                 }
             } elseif ($type instanceof TCallable) {
-                $non_object_types[] = new Atomic\TCallableArray([
+                $non_object_types[] = new TCallableArray([
                     Type::getArrayKey(),
                     Type::getMixed()
                 ]);
-                $non_object_types[] = new Atomic\TCallableString();
+                $non_object_types[] = new TCallableString();
                 $did_remove_type = true;
-            } elseif ($type instanceof Atomic\TIterable) {
+            } elseif ($type instanceof TIterable) {
                 $clone_type = clone $type;
 
                 self::refineArrayKey($clone_type->type_params[0]);
@@ -931,7 +1035,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_object_types) {
-            $type = new Type\Union($non_object_types);
+            $type = new Union($non_object_types);
             $type->ignore_falsable_issues = $existing_var_type->ignore_falsable_issues;
             $type->ignore_nullable_issues = $existing_var_type->ignore_nullable_issues;
             $type->from_docblock = $existing_var_type->from_docblock;
@@ -948,14 +1052,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileNumeric(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_numeric_types = [];
         $did_remove_type = $existing_var_type->hasString()
@@ -1021,7 +1125,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_numeric_types) {
-            $type = new Type\Union($non_numeric_types);
+            $type = new Union($non_numeric_types);
             $type->ignore_falsable_issues = $existing_var_type->ignore_falsable_issues;
             $type->ignore_nullable_issues = $existing_var_type->ignore_nullable_issues;
             $type->from_docblock = $existing_var_type->from_docblock;
@@ -1038,14 +1142,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileInt(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_int_types = [];
         $did_remove_type = false;
@@ -1121,7 +1225,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_int_types) {
-            $type = new Type\Union($non_int_types);
+            $type = new Union($non_int_types);
             $type->ignore_falsable_issues = $existing_var_type->ignore_falsable_issues;
             $type->ignore_nullable_issues = $existing_var_type->ignore_nullable_issues;
             $type->from_docblock = $existing_var_type->from_docblock;
@@ -1138,14 +1242,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileFloat(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_float_types = [];
         $did_remove_type = false;
@@ -1216,7 +1320,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_float_types) {
-            $type = new Type\Union($non_float_types);
+            $type = new Union($non_float_types);
             $type->ignore_falsable_issues = $existing_var_type->ignore_falsable_issues;
             $type->ignore_nullable_issues = $existing_var_type->ignore_nullable_issues;
             $type->from_docblock = $existing_var_type->from_docblock;
@@ -1233,14 +1337,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileString(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_string_types = [];
         $did_remove_type = $existing_var_type->hasScalar();
@@ -1275,11 +1379,11 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                 $non_string_types[] = new TInt();
                 $did_remove_type = true;
             } elseif ($type instanceof TCallable) {
-                $non_string_types[] = new Atomic\TCallableArray([
+                $non_string_types[] = new TCallableArray([
                     Type::getArrayKey(),
                     Type::getMixed()
                 ]);
-                $non_string_types[] = new Atomic\TCallableObject();
+                $non_string_types[] = new TCallableObject();
                 $did_remove_type = true;
             } elseif ($type instanceof TNumeric) {
                 $non_string_types[] = $type;
@@ -1320,7 +1424,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_string_types) {
-            $type = new Type\Union($non_string_types);
+            $type = new Union($non_string_types);
             $type->ignore_falsable_issues = $existing_var_type->ignore_falsable_issues;
             $type->ignore_nullable_issues = $existing_var_type->ignore_nullable_issues;
             $type->from_docblock = $existing_var_type->from_docblock;
@@ -1337,14 +1441,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileArray(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $non_array_types = [];
         $did_remove_type = $existing_var_type->hasScalar();
@@ -1376,12 +1480,12 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                     $non_array_types[] = $type;
                 }
             } elseif ($type instanceof TCallable) {
-                $non_array_types[] = new Atomic\TCallableString();
-                $non_array_types[] = new Atomic\TCallableObject();
+                $non_array_types[] = new TCallableString();
+                $non_array_types[] = new TCallableObject();
                 $did_remove_type = true;
-            } elseif ($type instanceof Atomic\TIterable) {
+            } elseif ($type instanceof TIterable) {
                 if (!$type->type_params[0]->isMixed() || !$type->type_params[1]->isMixed()) {
-                    $non_array_types[] = new Atomic\TGenericObject('Traversable', $type->type_params);
+                    $non_array_types[] = new TGenericObject('Traversable', $type->type_params);
                 } else {
                     $non_array_types[] = new TNamedObject('Traversable');
                 }
@@ -1389,7 +1493,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                 $did_remove_type = true;
             } elseif (!$type instanceof TArray
                 && !$type instanceof TKeyedArray
-                && !$type instanceof Atomic\TList
+                && !$type instanceof TList
             ) {
                 $non_array_types[] = $type;
             } else {
@@ -1421,7 +1525,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
         }
 
         if ($non_array_types) {
-            $type = new Type\Union($non_array_types);
+            $type = new Union($non_array_types);
             $type->ignore_falsable_issues = $existing_var_type->ignore_falsable_issues;
             $type->ignore_nullable_issues = $existing_var_type->ignore_nullable_issues;
             $type->from_docblock = $existing_var_type->from_docblock;
@@ -1438,14 +1542,14 @@ class SimpleNegatedAssertionReconciler extends Reconciler
      * @param   0|1|2    $failed_reconciliation
      */
     private static function reconcileResource(
-        Type\Union $existing_var_type,
+        Union $existing_var_type,
         ?string $key,
         bool $negated,
         ?CodeLocation $code_location,
         array $suppressed_issues,
         int &$failed_reconciliation,
         bool $is_equality
-    ) : Type\Union {
+    ): Union {
         $old_var_type_string = $existing_var_type->getId();
         $did_remove_type = false;
 
@@ -1508,40 +1612,37 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                 continue;
             }
 
-            if ($atomic_type instanceof Atomic\TIntRange) {
+            if ($atomic_type instanceof TIntRange) {
                 $existing_var_type->removeType($atomic_type->getKey());
                 if ($atomic_type->max_bound === null) {
                     $atomic_type->max_bound = $assertion_value;
                 } else {
-                    $atomic_type->max_bound = Atomic\TIntRange::getNewLowestBound(
+                    $atomic_type->max_bound = TIntRange::getNewLowestBound(
                         $assertion_value,
                         $atomic_type->max_bound
                     );
                 }
                 $existing_var_type->addType($atomic_type);
-            } elseif ($atomic_type instanceof Atomic\TLiteralInt) {
-                $new_range = new Atomic\TIntRange(null, $assertion_value);
-                if (!$new_range->contains($atomic_type->value)) {
-                    //emit an issue here in the future about incompatible type
+            } elseif ($atomic_type instanceof TLiteralInt) {
+                if ($atomic_type->value > $assertion_value) {
                     $existing_var_type->removeType($atomic_type->getKey());
                 } /*elseif ($inside_loop) {
                     //when inside a loop, allow the range to extends the type
                     $existing_var_type->removeType($atomic_type->getKey());
                     if ($atomic_type->value < $assertion_value) {
-                        $existing_var_type->addType(new Atomic\TIntRange($atomic_type->value, $assertion_value));
+                        $existing_var_type->addType(new TIntRange($atomic_type->value, $assertion_value));
                     } else {
-                        $existing_var_type->addType(new Atomic\TIntRange($assertion_value, $atomic_type->value));
+                        $existing_var_type->addType(new TIntRange($assertion_value, $atomic_type->value));
                     }
                 }*/
-            } elseif ($atomic_type instanceof Atomic\TPositiveInt) {
-                if ($assertion_value > 0) {
-                    //emit an issue here in the future about incompatible type
-                }
+            } elseif ($atomic_type instanceof TPositiveInt) {
                 $existing_var_type->removeType($atomic_type->getKey());
-                $existing_var_type->addType(new Atomic\TIntRange(null, $assertion_value));
+                if ($assertion_value >= 1) {
+                    $existing_var_type->addType(new TIntRange(1, $assertion_value));
+                }
             } elseif ($atomic_type instanceof TInt) {
                 $existing_var_type->removeType($atomic_type->getKey());
-                $existing_var_type->addType(new Atomic\TIntRange(null, $assertion_value));
+                $existing_var_type->addType(new TIntRange(null, $assertion_value));
             }
         }
 
@@ -1556,7 +1657,7 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                 continue;
             }
 
-            if ($atomic_type instanceof Atomic\TIntRange) {
+            if ($atomic_type instanceof TIntRange) {
                 $existing_var_type->removeType($atomic_type->getKey());
                 if ($atomic_type->min_bound === null) {
                     $atomic_type->min_bound = $assertion_value;
@@ -1564,29 +1665,26 @@ class SimpleNegatedAssertionReconciler extends Reconciler
                     $atomic_type->min_bound = max($atomic_type->min_bound, $assertion_value);
                 }
                 $existing_var_type->addType($atomic_type);
-            } elseif ($atomic_type instanceof Atomic\TLiteralInt) {
-                $new_range = new Atomic\TIntRange($assertion_value, null);
-                if (!$new_range->contains($atomic_type->value)) {
-                    //emit an issue here in the future about incompatible type
+            } elseif ($atomic_type instanceof TLiteralInt) {
+                if ($atomic_type->value < $assertion_value) {
                     $existing_var_type->removeType($atomic_type->getKey());
-                }/* elseif ($inside_loop) {
+                } /* elseif ($inside_loop) {
                     //when inside a loop, allow the range to extends the type
                     $existing_var_type->removeType($atomic_type->getKey());
                     if ($atomic_type->value < $assertion_value) {
-                        $existing_var_type->addType(new Atomic\TIntRange($atomic_type->value, $assertion_value));
+                        $existing_var_type->addType(new TIntRange($atomic_type->value, $assertion_value));
                     } else {
-                        $existing_var_type->addType(new Atomic\TIntRange($assertion_value, $atomic_type->value));
+                        $existing_var_type->addType(new TIntRange($assertion_value, $atomic_type->value));
                     }
                 }*/
-            } elseif ($atomic_type instanceof Atomic\TPositiveInt) {
-                if ($assertion_value > 0) {
-                    //emit an issue here in the future about incompatible type
+            } elseif ($atomic_type instanceof TPositiveInt) {
+                if ($assertion_value > 1) {
+                    $existing_var_type->removeType($atomic_type->getKey());
+                    $existing_var_type->addType(new TIntRange($assertion_value, null));
                 }
-                $existing_var_type->removeType($atomic_type->getKey());
-                $existing_var_type->addType(new Atomic\TIntRange($assertion_value, 1));
             } elseif ($atomic_type instanceof TInt) {
                 $existing_var_type->removeType($atomic_type->getKey());
-                $existing_var_type->addType(new Atomic\TIntRange($assertion_value, null));
+                $existing_var_type->addType(new TIntRange($assertion_value, null));
             }
         }
 

@@ -1,23 +1,33 @@
 <?php
+
 namespace Psalm\Internal\Analyzer\Statements\Expression\Call\Method;
 
 use PhpParser;
 use Psalm\CodeLocation;
 use Psalm\Codebase;
+use Psalm\Config;
 use Psalm\Context;
 use Psalm\Internal\Analyzer\Statements\Expression\Call\ArgumentsAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\CallAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\MethodIdentifier;
+use Psalm\Internal\Type\TypeExpander;
 use Psalm\Node\Expr\VirtualArray;
 use Psalm\Node\Expr\VirtualArrayItem;
 use Psalm\Node\Scalar\VirtualString;
 use Psalm\Node\VirtualArg;
+use Psalm\Storage\ClassLikeStorage;
+use Psalm\Storage\MethodStorage;
 use Psalm\Type;
+use Psalm\Type\Atomic\TClosure;
+use Psalm\Type\Union;
 
 use function array_map;
 use function array_merge;
 
+/**
+ * @internal
+ */
 class MissingMethodCallHandler
 {
     public static function handleMagicMethod(
@@ -25,14 +35,29 @@ class MissingMethodCallHandler
         Codebase $codebase,
         PhpParser\Node\Expr\MethodCall $stmt,
         MethodIdentifier $method_id,
-        \Psalm\Storage\ClassLikeStorage $class_storage,
+        ClassLikeStorage $class_storage,
         Context $context,
-        \Psalm\Config $config,
-        ?Type\Union $all_intersection_return_type,
+        Config $config,
+        ?Union $all_intersection_return_type,
         AtomicMethodCallAnalysisResult $result
-    ) : ?AtomicCallContext {
+    ): ?AtomicCallContext {
         $fq_class_name = $method_id->fq_class_name;
         $method_name_lc = $method_id->method_name;
+
+        if ($stmt->isFirstClassCallable()) {
+            if (isset($class_storage->pseudo_methods[$method_name_lc])) {
+                $result->has_valid_method_call_type = true;
+                $result->existent_method_ids[] = $method_id->__toString();
+                $result->return_type = self::createFirstClassCallableReturnType(
+                    $class_storage->pseudo_methods[$method_name_lc]
+                );
+            } else {
+                $result->non_existent_magic_method_ids[] = $method_id->__toString();
+                $result->return_type = self::createFirstClassCallableReturnType();
+            }
+
+            return null;
+        }
 
         if ($codebase->methods->return_type_provider->has($fq_class_name)) {
             $return_type_candidate = $codebase->methods->return_type_provider->getReturnType(
@@ -102,7 +127,7 @@ class MissingMethodCallHandler
             if ($pseudo_method_storage->return_type) {
                 $return_type_candidate = clone $pseudo_method_storage->return_type;
 
-                $return_type_candidate = \Psalm\Internal\Type\TypeExpander::expandUnion(
+                $return_type_candidate = TypeExpander::expandUnion(
                     $codebase,
                     $return_type_candidate,
                     $fq_class_name,
@@ -195,13 +220,13 @@ class MissingMethodCallHandler
         MethodIdentifier $method_id,
         bool $is_interface,
         Context $context,
-        \Psalm\Config $config,
-        ?Type\Union $all_intersection_return_type,
+        Config $config,
+        ?Union $all_intersection_return_type,
         array $all_intersection_existent_method_ids,
         ?string $intersection_method_id,
         string $cased_method_id,
         AtomicMethodCallAnalysisResult $result
-    ) : void {
+    ): void {
         $fq_class_name = $method_id->fq_class_name;
         $method_name_lc = $method_id->method_name;
 
@@ -214,6 +239,11 @@ class MissingMethodCallHandler
             $result->existent_method_ids[] = $method_id->__toString();
 
             $pseudo_method_storage = $class_storage->pseudo_methods[$method_name_lc];
+
+            if ($stmt->isFirstClassCallable()) {
+                $result->return_type = self::createFirstClassCallableReturnType($pseudo_method_storage);
+                return;
+            }
 
             if (ArgumentsAnalyzer::analyze(
                 $statements_analyzer,
@@ -251,7 +281,7 @@ class MissingMethodCallHandler
                     ) ?? Type::getMixed();
                 }
 
-                $return_type_candidate = \Psalm\Internal\Type\TypeExpander::expandUnion(
+                $return_type_candidate = TypeExpander::expandUnion(
                     $codebase,
                     $return_type_candidate,
                     $fq_class_name,
@@ -269,6 +299,12 @@ class MissingMethodCallHandler
 
             $result->return_type = Type::getMixed();
 
+            return;
+        }
+
+        if ($stmt->isFirstClassCallable()) {
+            $result->non_existent_class_method_ids[] = $method_id->__toString();
+            $result->return_type = self::createFirstClassCallableReturnType();
             return;
         }
 
@@ -303,5 +339,19 @@ class MissingMethodCallHandler
                 $result->non_existent_class_method_ids[] = $intersection_method_id ?: $cased_method_id;
             }
         }
+    }
+
+    private static function createFirstClassCallableReturnType(?MethodStorage $method_storage = null): Union
+    {
+        if ($method_storage) {
+            return new Union([new TClosure(
+                'Closure',
+                $method_storage->params,
+                $method_storage->return_type,
+                $method_storage->pure
+            )]);
+        }
+
+        return Type::getClosure();
     }
 }

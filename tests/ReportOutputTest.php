@@ -3,17 +3,20 @@
 namespace Psalm\Tests;
 
 use DOMDocument;
+use Psalm\Config;
 use Psalm\Context;
+use Psalm\Internal\Analyzer\IssueData;
 use Psalm\Internal\Analyzer\ProjectAnalyzer;
 use Psalm\Internal\Provider\FakeFileProvider;
+use Psalm\Internal\Provider\Providers;
 use Psalm\Internal\RuntimeCaches;
 use Psalm\IssueBuffer;
 use Psalm\Report;
 use Psalm\Report\JsonReport;
 use Psalm\Report\ReportOptions;
-use Psalm\Tests\Internal\Provider;
+use Psalm\Tests\Internal\Provider\FakeParserCacheProvider;
+use UnexpectedValueException;
 
-use function array_values;
 use function file_get_contents;
 use function json_decode;
 use function ob_end_clean;
@@ -23,7 +26,7 @@ use function unlink;
 
 class ReportOutputTest extends TestCase
 {
-    public function setUp() : void
+    public function setUp(): void
     {
         // `TestCase::setUp()` creates its own ProjectAnalyzer and Config instance, but we don't want to do that in this
         // case, so don't run a `parent::setUp()` call here.
@@ -32,17 +35,17 @@ class ReportOutputTest extends TestCase
 
         $config = new TestConfig();
         $config->throw_exception = false;
-        $config->setCustomErrorLevel('PossiblyUndefinedGlobalVariable', \Psalm\Config::REPORT_INFO);
+        $config->setCustomErrorLevel('PossiblyUndefinedGlobalVariable', Config::REPORT_INFO);
 
         $json_report_options = ProjectAnalyzer::getFileReportOptions([__DIR__ . '/test-report.json']);
 
         $this->project_analyzer = new ProjectAnalyzer(
             $config,
-            new \Psalm\Internal\Provider\Providers(
+            new Providers(
                 $this->file_provider,
-                new Provider\FakeParserCacheProvider()
+                new FakeParserCacheProvider()
             ),
-            new Report\ReportOptions(),
+            new ReportOptions(),
             $json_report_options
         );
     }
@@ -60,14 +63,14 @@ class ReportOutputTest extends TestCase
 
     public function testReportFormatException(): void
     {
-        $this->expectException(\UnexpectedValueException::class);
+        $this->expectException(UnexpectedValueException::class);
         $config = new TestConfig();
         $config->throw_exception = false;
 
         ProjectAnalyzer::getFileReportOptions(['/tmp/report.log']);
     }
 
-    public function analyzeTaintFlowFilesForReport() : void
+    public function analyzeTaintFlowFilesForReport(): void
     {
         $vulnerable_file_contents = '<?php
 
@@ -667,7 +670,7 @@ echo "Successfully executed the command: " . $prefixedData;';
         );
     }
 
-    public function analyzeFileForReport() : void
+    public function analyzeFileForReport(): void
     {
         $file_contents = '<?php
 function psalmCanVerify(int $your_code): ?string {
@@ -815,7 +818,7 @@ echo $a;';
         $json_report_options = ProjectAnalyzer::getFileReportOptions([__DIR__ . '/test-report.json'])[0];
 
         $this->assertSame(
-            array_values($issue_data),
+            $issue_data,
             json_decode(IssueBuffer::getOutput(IssueBuffer::getIssuesData(), $json_report_options), true)
         );
     }
@@ -823,7 +826,7 @@ echo $a;';
     public function testFilteredJsonReportIsStillArray(): void
     {
         $issues_data = [
-            22 => new \Psalm\Internal\Analyzer\IssueData(
+            22 => new IssueData(
                 'info',
                 15,
                 15,
@@ -989,7 +992,7 @@ somefile.php:17: [W0001] PossiblyUndefinedGlobalVariable: Possibly undefined glo
     {
         $this->analyzeFileForReport();
 
-        $console_report_options = new Report\ReportOptions();
+        $console_report_options = new ReportOptions();
         $console_report_options->use_color = false;
 
         $this->assertSame(
@@ -1017,7 +1020,7 @@ echo $a
     {
         $this->analyzeFileForReport();
 
-        $console_report_options = new Report\ReportOptions();
+        $console_report_options = new ReportOptions();
         $console_report_options->use_color = false;
         $console_report_options->show_info = false;
 
@@ -1043,7 +1046,7 @@ echo CHANGE_ME;
     {
         $this->analyzeFileForReport();
 
-        $console_report_options = new Report\ReportOptions();
+        $console_report_options = new ReportOptions();
         $console_report_options->show_snippet = false;
         $console_report_options->use_color = false;
 
@@ -1072,14 +1075,32 @@ INFO: PossiblyUndefinedGlobalVariable - somefile.php:17:6 - Possibly undefined g
     {
         $this->analyzeFileForReport();
 
-        $console_report_options = new Report\ReportOptions();
+        $console_report_options = new ReportOptions();
         $console_report_options->show_snippet = false;
         $console_report_options->use_color = true;
+        $console_report_options->in_ci = false; // we don't output links in CI
 
         $output  = IssueBuffer::getOutput(IssueBuffer::getIssuesData(), $console_report_options);
 
         $this->assertStringContainsString(
-            "\033]8;;file://somefile.php#L3\033\\somefile.php:3:10\033]8;;\033\\",
+            "\033]8;;file://somefile.php#L3\033\\\033[1;31msomefile.php:3:10\033[0m\033]8;;\033\\",
+            $output
+        );
+    }
+
+    public function testConsoleReportLinksAreDisabledInCI(): void
+    {
+        $this->analyzeFileForReport();
+
+        $console_report_options = new ReportOptions();
+        $console_report_options->show_snippet = false;
+        $console_report_options->use_color = true;
+        $console_report_options->in_ci = true;
+
+        $output  = IssueBuffer::getOutput(IssueBuffer::getIssuesData(), $console_report_options);
+
+        $this->assertStringNotContainsString(
+            "\033]8;;file://somefile.php#L3\033\\",
             $output
         );
     }
@@ -1088,7 +1109,7 @@ INFO: PossiblyUndefinedGlobalVariable - somefile.php:17:6 - Possibly undefined g
     {
         $this->analyzeFileForReport();
 
-        $compact_report_options = new Report\ReportOptions();
+        $compact_report_options = new ReportOptions();
         $compact_report_options->format = Report::TYPE_COMPACT;
         $compact_report_options->use_color = false;
 

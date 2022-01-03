@@ -1,6 +1,10 @@
 <?php
+
 namespace Psalm;
 
+use DOMDocument;
+use DOMElement;
+use Psalm\Exception\ConfigException;
 use Psalm\Internal\Analyzer\IssueData;
 use Psalm\Internal\Provider\FileProvider;
 use RuntimeException;
@@ -17,6 +21,7 @@ use function ksort;
 use function min;
 use function phpversion;
 use function preg_replace_callback;
+use function sort;
 use function str_replace;
 use function strpos;
 use function trim;
@@ -71,28 +76,32 @@ class ErrorBaseline
     /**
      * @return array<string,array<string,array{o:int, s: list<string>}>>
      *
-     * @throws Exception\ConfigException
+     * @throws ConfigException
      */
     public static function read(FileProvider $fileProvider, string $baselineFile): array
     {
         if (!$fileProvider->fileExists($baselineFile)) {
-            throw new Exception\ConfigException("{$baselineFile} does not exist or is not readable");
+            throw new ConfigException("{$baselineFile} does not exist or is not readable");
         }
 
         $xmlSource = $fileProvider->getContents($baselineFile);
 
-        $baselineDoc = new \DOMDocument();
+        if ($xmlSource === '') {
+            throw new ConfigException('Baseline file is empty');
+        }
+
+        $baselineDoc = new DOMDocument();
         $baselineDoc->loadXML($xmlSource, LIBXML_NOBLANKS);
 
         $filesElement = $baselineDoc->getElementsByTagName('files');
 
         if ($filesElement->length === 0) {
-            throw new Exception\ConfigException('Baseline file does not contain <files>');
+            throw new ConfigException('Baseline file does not contain <files>');
         }
 
         $files = [];
 
-        /** @var \DOMElement $filesElement */
+        /** @var DOMElement $filesElement */
         $filesElement = $filesElement[0];
 
         foreach ($filesElement->getElementsByTagName('file') as $file) {
@@ -103,7 +112,7 @@ class ErrorBaseline
             $files[$fileName] = [];
 
             foreach ($file->childNodes as $issue) {
-                if (!$issue instanceof \DOMElement) {
+                if (!$issue instanceof DOMElement) {
                     continue;
                 }
 
@@ -129,7 +138,7 @@ class ErrorBaseline
      *
      * @return array<string, array<string, array{o: int, s: list<string>}>>
      *
-     * @throws Exception\ConfigException
+     * @throws ConfigException
      */
     public static function update(
         FileProvider $fileProvider,
@@ -237,7 +246,7 @@ class ErrorBaseline
         array $groupedIssues,
         bool $include_php_versions
     ): void {
-        $baselineDoc = new \DOMDocument('1.0', 'UTF-8');
+        $baselineDoc = new DOMDocument('1.0', 'UTF-8');
         $filesNode = $baselineDoc->createElement('files');
         $filesNode->setAttribute('psalm-version', PSALM_VERSION);
 
@@ -251,7 +260,7 @@ class ErrorBaseline
                     ('php:' . PHP_VERSION),
                 ],
                 array_map(
-                    function (string $extension) : string {
+                    function (string $extension): string {
                         return $extension . ':' . phpversion($extension);
                     },
                     $extensions
@@ -269,7 +278,7 @@ class ErrorBaseline
 
                 $issueNode->setAttribute('occurrences', (string)$existingIssueType['o']);
 
-                \sort($existingIssueType['s']);
+                sort($existingIssueType['s']);
 
                 foreach ($existingIssueType['s'] as $selection) {
                     $codeNode = $baselineDoc->createElement('code');
@@ -295,7 +304,7 @@ class ErrorBaseline
             /**
              * @param string[] $matches
              */
-            function (array $matches) : string {
+            function (array $matches): string {
                 return
                     '<files' .
                     "\n  " .

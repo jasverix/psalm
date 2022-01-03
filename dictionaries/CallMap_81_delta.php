@@ -17,6 +17,7 @@
 return [
   'added' => [
     'array_is_list' => ['bool', 'array' => 'array'],
+    'enum_exists' => ['bool', 'class' => 'class-string', 'autoload=' => 'bool'],
     'fsync' => ['bool', 'stream' => 'resource'],
     'fdatasync' => ['bool', 'stream' => 'resource'],
     'imageavif' => ['bool', 'image'=>'GdImage', 'file='=>'resource|string|null', 'quality='=>'int', 'speed='=>'int'],
@@ -36,6 +37,15 @@ return [
     'Fiber::getCurrent' => ['?self'],
     'Fiber::suspend' => ['mixed', 'value='=>'null|mixed'],
     'FiberError::__construct' => ['void'],
+    'ReflectionEnum::getBackingType' => ['?ReflectionType'],
+    'ReflectionEnum::getCase' => ['ReflectionEnumUnitCase', 'name' => 'string'],
+    'ReflectionEnum::getCases' => ['list<ReflectionEnumUnitCase>'],
+    'ReflectionEnum::hasCase' => ['bool', 'name' => 'string'],
+    'ReflectionEnum::isBacked' => ['bool'],
+    'ReflectionEnumUnitCase::getEnum' => ['ReflectionEnum'],
+    'ReflectionEnumUnitCase::getValue' => ['UnitEnum'],
+    'ReflectionEnumBackedCase::getBackingValue' => ['string|int'],
+    'ReflectionFunctionAbstract::isStatic' => ['bool'],
   ],
 
   'changed' => [
@@ -624,8 +634,8 @@ return [
       'new' => ['bool', 'ldap'=>'LDAP\Connection|null', 'option'=>'int', 'value'=>'mixed'],
     ],
     'ldap_set_rebind_proc' => [
-      'old' => ['bool', 'ldap'=>'resource', 'callback'=>'string'],
-      'new' => ['bool', 'ldap'=>'LDAP\Connection', 'callback'=>'string'],
+      'old' => ['bool', 'ldap'=>'resource', 'callback'=>'?callable'],
+      'new' => ['bool', 'ldap'=>'LDAP\Connection', 'callback'=>'?callable'],
     ],
     'mysqli::connect' => [
       'old' => ['null|false', 'hostname='=>'string|null', 'username='=>'string|null', 'password='=>'string|null', 'database='=>'string|null', 'port='=>'int|null', 'socket='=>'string|null'],
@@ -1097,5 +1107,7 @@ return [
     ],
   ],
 
-  'removed' => [],
+  'removed' => [
+    'ReflectionMethod::isStatic' => ['bool'],
+  ],
 ];

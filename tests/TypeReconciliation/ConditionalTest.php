@@ -1,10 +1,15 @@
 <?php
+
 namespace Psalm\Tests\TypeReconciliation;
 
-class ConditionalTest extends \Psalm\Tests\TestCase
+use Psalm\Tests\TestCase;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
+
+class ConditionalTest extends TestCase
 {
-    use \Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
-    use \Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -228,7 +233,7 @@ class ConditionalTest extends \Psalm\Tests\TestCase
                       return new D();
                     }
 
-                    $a = rand(0, 1) ? makeA(): makeC();
+                    $a = rand(0, 1) ? makeA() : makeC();
 
                     if ($a instanceof B || $a instanceof D) { }',
             ],
@@ -273,7 +278,7 @@ class ConditionalTest extends \Psalm\Tests\TestCase
                 '<?php
                     function foo(): void {
                         $b = null;
-                        $c = rand(0, 1) ? bar($b): null;
+                        $c = rand(0, 1) ? bar($b) : null;
                         if (is_int($b)) { }
                     }
                     function bar(?int &$a): void {
@@ -445,7 +450,7 @@ class ConditionalTest extends \Psalm\Tests\TestCase
             ],
             'eraseNullAfterInequalityCheck' => [
                 '<?php
-                    $a = mt_rand(0, 1) ? mt_rand(-10, 10): null;
+                    $a = mt_rand(0, 1) ? mt_rand(-10, 10) : null;
 
                     if ($a > 0) {
                       echo $a + 3;
@@ -966,14 +971,16 @@ class ConditionalTest extends \Psalm\Tests\TestCase
                     }
                     strlen($a);',
             ],
-            'removeCallable' => [
+            'removeCallableString' => [
                 '<?php
                     $s = rand(0,1) ? "strlen" : [1];
                     if (!is_callable($s)) {
                         array_pop($s);
-                    }
-
-                    $a = rand(0, 1) ? (function(): void {}) : 1.1;
+                    }',
+            ],
+            'removeCallableClosure' => [
+                '<?php
+                    $a = rand(0, 1) ? (function(): void {}) : 1;
                     if (!is_callable($a)) {
                         echo $a;
                     }',
@@ -2854,7 +2861,7 @@ class ConditionalTest extends \Psalm\Tests\TestCase
                     class A { }
                     class B { }
                     class C { }
-                    $a = rand(0, 10) > 5 ? new A(): new B();
+                    $a = rand(0, 10) > 5 ? new A() : new B();
                     if ($a instanceof A) {
                     } elseif ($a instanceof C) {
                     }',

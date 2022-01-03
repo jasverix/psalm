@@ -1,17 +1,26 @@
 <?php
+
 namespace Psalm\Internal\Analyzer\Statements\Expression\Call\StaticMethod;
 
 use PhpParser;
 use Psalm\CodeLocation;
+use Psalm\Codebase;
+use Psalm\Config;
 use Psalm\Context;
+use Psalm\FileManipulation;
+use Psalm\Internal\Analyzer\FunctionLikeAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\Call\ClassTemplateParamCollector;
 use Psalm\Internal\Analyzer\Statements\Expression\Call\Method\MethodCallProhibitionAnalyzer;
+use Psalm\Internal\Analyzer\Statements\Expression\Call\StaticCallAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\CallAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\FileManipulation\FileManipulationBuffer;
 use Psalm\Internal\MethodIdentifier;
+use Psalm\Internal\Type\Comparator\UnionTypeComparator;
 use Psalm\Internal\Type\TemplateBound;
 use Psalm\Internal\Type\TemplateInferredTypeReplacer;
+use Psalm\Internal\Type\TemplateResult;
+use Psalm\Internal\Type\TypeExpander;
 use Psalm\Issue\AbstractMethodCall;
 use Psalm\Issue\ImpureMethodCall;
 use Psalm\IssueBuffer;
@@ -19,16 +28,25 @@ use Psalm\Plugin\EventHandler\Event\AfterMethodCallAnalysisEvent;
 use Psalm\Storage\Assertion;
 use Psalm\Storage\ClassLikeStorage;
 use Psalm\Type;
+use Psalm\Type\Atomic;
+use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TTemplateParam;
+use Psalm\Type\Atomic\TTemplateParamClass;
+use Psalm\Type\Union;
 
 use function array_map;
 use function count;
 use function explode;
 use function in_array;
+use function is_string;
 use function strlen;
 use function strpos;
 use function strtolower;
 use function substr;
 
+/**
+ * @internal
+ */
 class ExistingAtomicStaticCallAnalyzer
 {
     /**
@@ -40,12 +58,12 @@ class ExistingAtomicStaticCallAnalyzer
         PhpParser\Node\Identifier $stmt_name,
         array $args,
         Context $context,
-        Type\Atomic $lhs_type_part,
+        Atomic $lhs_type_part,
         MethodIdentifier $method_id,
         string $cased_method_id,
         ClassLikeStorage $class_storage,
         bool &$moved_call
-    ) : void {
+    ): void {
         $fq_class_name = $method_id->fq_class_name;
         $method_name_lc = $method_id->method_name;
 
@@ -150,7 +168,7 @@ class ExistingAtomicStaticCallAnalyzer
                     }
 
                     foreach ($extended_type->getAtomicTypes() as $t) {
-                        if ($t instanceof Type\Atomic\TTemplateParam
+                        if ($t instanceof TTemplateParam
                             && isset($found_generic_params[$t->param_name][$t->defining_class])
                         ) {
                             $found_generic_params[$type_key][$template_fq_class_name]
@@ -165,7 +183,7 @@ class ExistingAtomicStaticCallAnalyzer
             }
         }
 
-        $template_result = new \Psalm\Internal\Type\TemplateResult([], $found_generic_params ?: []);
+        $template_result = new TemplateResult([], $found_generic_params ?: []);
 
         if (CallAnalyzer::checkMethodArgs(
             $method_id,
@@ -244,51 +262,45 @@ class ExistingAtomicStaticCallAnalyzer
             if ($method_storage->abstract
                 && $stmt->class instanceof PhpParser\Node\Name
                 && (!$context->self
-                    || !\Psalm\Internal\Type\Comparator\UnionTypeComparator::isContainedBy(
+                    || !UnionTypeComparator::isContainedBy(
                         $codebase,
                         $context->vars_in_scope['$this']
-                            ?? new Type\Union([
-                                new Type\Atomic\TNamedObject($context->self)
+                            ?? new Union([
+                                new TNamedObject($context->self)
                             ]),
-                        new Type\Union([
-                            new Type\Atomic\TNamedObject($method_id->fq_class_name)
+                        new Union([
+                            new TNamedObject($method_id->fq_class_name)
                         ])
                     ))
             ) {
-                if (IssueBuffer::accepts(
+                IssueBuffer::maybeAdd(
                     new AbstractMethodCall(
                         'Cannot call an abstract static method ' . $method_id . ' directly',
                         new CodeLocation($statements_analyzer->getSource(), $stmt)
                     ),
                     $statements_analyzer->getSuppressedIssues()
-                )) {
-                    // fall through
-                }
+                );
             }
 
             if (!$context->inside_throw) {
                 if ($context->pure && !$method_storage->pure) {
-                    if (IssueBuffer::accepts(
+                    IssueBuffer::maybeAdd(
                         new ImpureMethodCall(
                             'Cannot call an impure method from a pure context',
                             new CodeLocation($statements_analyzer, $stmt_name)
                         ),
                         $statements_analyzer->getSuppressedIssues()
-                    )) {
-                        // fall through
-                    }
+                    );
                 } elseif ($context->mutation_free && !$method_storage->mutation_free) {
-                    if (IssueBuffer::accepts(
+                    IssueBuffer::maybeAdd(
                         new ImpureMethodCall(
                             'Cannot call a possibly-mutating method from a mutation-free context',
                             new CodeLocation($statements_analyzer, $stmt_name)
                         ),
                         $statements_analyzer->getSuppressedIssues()
-                    )) {
-                        // fall through
-                    }
+                    );
                 } elseif ($statements_analyzer->getSource()
-                        instanceof \Psalm\Internal\Analyzer\FunctionLikeAnalyzer
+                        instanceof FunctionLikeAnalyzer
                     && $statements_analyzer->getSource()->track_mutations
                     && !$method_storage->pure
                 ) {
@@ -318,7 +330,7 @@ class ExistingAtomicStaticCallAnalyzer
                 $statements_analyzer->node_data->setIfTrueAssertions(
                     $stmt,
                     array_map(
-                        function (Assertion $assertion) use ($generic_params, $codebase) : Assertion {
+                        function (Assertion $assertion) use ($generic_params, $codebase): Assertion {
                             return $assertion->getUntemplatedCopy($generic_params, null, $codebase);
                         },
                         $method_storage->if_true_assertions
@@ -330,7 +342,7 @@ class ExistingAtomicStaticCallAnalyzer
                 $statements_analyzer->node_data->setIfFalseAssertions(
                     $stmt,
                     array_map(
-                        function (Assertion $assertion) use ($generic_params, $codebase) : Assertion {
+                        function (Assertion $assertion) use ($generic_params, $codebase): Assertion {
                             return $assertion->getUntemplatedCopy($generic_params, null, $codebase);
                         },
                         $method_storage->if_false_assertions
@@ -365,7 +377,7 @@ class ExistingAtomicStaticCallAnalyzer
 
                         $file_manipulations = [];
 
-                        $file_manipulations[] = new \Psalm\FileManipulation(
+                        $file_manipulations[] = new FileManipulation(
                             (int) $stmt_name->getAttribute('startFilePos'),
                             (int) $stmt_name->getAttribute('endFilePos') + 1,
                             $new_method_name
@@ -409,7 +421,7 @@ class ExistingAtomicStaticCallAnalyzer
 
         $return_type_candidate = $return_type_candidate ?? Type::getMixed();
 
-        \Psalm\Internal\Analyzer\Statements\Expression\Call\StaticCallAnalyzer::taintReturnType(
+        StaticCallAnalyzer::taintReturnType(
             $statements_analyzer,
             $stmt,
             $method_id,
@@ -452,18 +464,18 @@ class ExistingAtomicStaticCallAnalyzer
      */
     private static function getMethodReturnType(
         StatementsAnalyzer $statements_analyzer,
-        \Psalm\Codebase $codebase,
+        Codebase $codebase,
         PhpParser\Node\Expr\StaticCall $stmt,
         MethodIdentifier $method_id,
         array $args,
-        \Psalm\Internal\Type\TemplateResult $template_result,
+        TemplateResult $template_result,
         ?string &$self_fq_class_name,
-        Type\Atomic $lhs_type_part,
+        Atomic $lhs_type_part,
         Context $context,
         string $fq_class_name,
         ClassLikeStorage $class_storage,
-        \Psalm\Config $config
-    ): ?Type\Union {
+        Config $config
+    ): ?Union {
         $return_type_candidate = $codebase->methods->getMethodReturnType(
             $method_id,
             $self_fq_class_name,
@@ -495,7 +507,7 @@ class ExistingAtomicStaticCallAnalyzer
                             $template_result->lower_bounds[$template_type->param_name] = [
                                 'fn-' . strtolower((string)$method_id) => [
                                     new TemplateBound(
-                                        Type::getInt(false, $codebase->php_major_version)
+                                        Type::getInt(false, $codebase->getMajorAnalysisPhpVersion())
                                     )
                                 ]
                             ];
@@ -505,8 +517,7 @@ class ExistingAtomicStaticCallAnalyzer
                                     new TemplateBound(
                                         Type::getInt(
                                             false,
-                                            10000 * $codebase->php_major_version
-                                            + 100 * $codebase->php_minor_version
+                                            $codebase->analysis_php_version_id
                                         )
                                     )
                                 ]
@@ -514,7 +525,7 @@ class ExistingAtomicStaticCallAnalyzer
                         } else {
                             $template_result->lower_bounds[$template_type->param_name] = [
                                 ($template_type->defining_class) => [
-                                    new TemplateBound(Type::getEmpty())
+                                    new TemplateBound(Type::getNever())
                                 ]
                             ];
                         }
@@ -524,20 +535,20 @@ class ExistingAtomicStaticCallAnalyzer
 
             $context_final = false;
 
-            if ($lhs_type_part instanceof Type\Atomic\TTemplateParam) {
+            if ($lhs_type_part instanceof TTemplateParam) {
                 $static_type = $lhs_type_part;
-            } elseif ($lhs_type_part instanceof Type\Atomic\TTemplateParamClass) {
-                $static_type = new Type\Atomic\TTemplateParam(
+            } elseif ($lhs_type_part instanceof TTemplateParamClass) {
+                $static_type = new TTemplateParam(
                     $lhs_type_part->param_name,
                     $lhs_type_part->as_type
-                        ? new Type\Union([$lhs_type_part->as_type])
+                        ? new Union([$lhs_type_part->as_type])
                         : Type::getObject(),
                     $lhs_type_part->defining_class
                 );
             } elseif ($stmt->class instanceof PhpParser\Node\Name
                 && count($stmt->class->parts) === 1
                 && in_array(strtolower($stmt->class->parts[0]), ['self', 'static', 'parent'], true)
-                && $lhs_type_part instanceof Type\Atomic\TNamedObject
+                && $lhs_type_part instanceof TNamedObject
                 && $context->self
             ) {
                 $static_type = $context->self;
@@ -547,7 +558,7 @@ class ExistingAtomicStaticCallAnalyzer
             }
 
             if ($template_result->lower_bounds) {
-                $return_type_candidate = \Psalm\Internal\Type\TypeExpander::expandUnion(
+                $return_type_candidate = TypeExpander::expandUnion(
                     $codebase,
                     $return_type_candidate,
                     null,
@@ -562,7 +573,7 @@ class ExistingAtomicStaticCallAnalyzer
                 );
             }
 
-            $return_type_candidate = \Psalm\Internal\Type\TypeExpander::expandUnion(
+            $return_type_candidate = TypeExpander::expandUnion(
                 $codebase,
                 $return_type_candidate,
                 $self_fq_class_name,
@@ -570,7 +581,7 @@ class ExistingAtomicStaticCallAnalyzer
                 $class_storage->parent_class,
                 true,
                 false,
-                \is_string($static_type)
+                is_string($static_type)
                 && ($static_type !== $context->self
                     || $class_storage->final
                     || $context_final)

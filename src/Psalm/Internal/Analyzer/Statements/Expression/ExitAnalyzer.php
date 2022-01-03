@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Internal\Analyzer\Statements\Expression;
 
 use PhpParser\Node\Expr\Exit_;
@@ -17,14 +18,19 @@ use Psalm\Storage\FunctionLikeParameter;
 use Psalm\Type;
 use Psalm\Type\Atomic\TInt;
 use Psalm\Type\Atomic\TString;
+use Psalm\Type\TaintKind;
+use Psalm\Type\Union;
 
+/**
+ * @internal
+ */
 class ExitAnalyzer
 {
     public static function analyze(
         StatementsAnalyzer $statements_analyzer,
         Exit_ $stmt,
         Context $context
-    ) : bool {
+    ): bool {
         $expr_type = null;
 
         $config = $statements_analyzer->getProjectAnalyzer()->getConfig();
@@ -42,15 +48,13 @@ class ExitAnalyzer
         }
 
         if ($forbidden) {
-            if (IssueBuffer::accepts(
+            IssueBuffer::maybeAdd(
                 new ForbiddenCode(
                     'You have forbidden the use of ' . $forbidden,
                     new CodeLocation($statements_analyzer, $stmt)
                 ),
                 $statements_analyzer->getSuppressedIssues()
-            )) {
-                // fall through
-            }
+            );
         }
 
         if ($stmt->expr) {
@@ -72,10 +76,10 @@ class ExitAnalyzer
                 );
 
                 $echo_param_sink->taints = [
-                    Type\TaintKind::INPUT_HTML,
-                    Type\TaintKind::INPUT_HAS_QUOTES,
-                    Type\TaintKind::USER_SECRET,
-                    Type\TaintKind::SYSTEM_SECRET
+                    TaintKind::INPUT_HTML,
+                    TaintKind::INPUT_HAS_QUOTES,
+                    TaintKind::USER_SECRET,
+                    TaintKind::SYSTEM_SECRET
                 ];
 
                 $statements_analyzer->data_flow_graph->addSink($echo_param_sink);
@@ -90,7 +94,7 @@ class ExitAnalyzer
                 if (ArgumentAnalyzer::verifyType(
                     $statements_analyzer,
                     $expr_type,
-                    new Type\Union([new TInt(), new TString()]),
+                    new Union([new TInt(), new TString()]),
                     null,
                     'exit',
                     null,
@@ -120,15 +124,13 @@ class ExitAnalyzer
             if ($context->mutation_free || $context->external_mutation_free) {
                 $function_name = $stmt->getAttribute('kind') === Exit_::KIND_DIE ? 'die' : 'exit';
 
-                if (IssueBuffer::accepts(
+                IssueBuffer::maybeAdd(
                     new ImpureFunctionCall(
                         'Cannot call ' . $function_name . ' with a non-integer argument from a mutation-free context',
                         new CodeLocation($statements_analyzer, $stmt)
                     ),
                     $statements_analyzer->getSuppressedIssues()
-                )) {
-                    // fall through
-                }
+                );
             } elseif ($statements_analyzer->getSource() instanceof FunctionLikeAnalyzer
                 && $statements_analyzer->getSource()->track_mutations
             ) {
@@ -137,7 +139,7 @@ class ExitAnalyzer
             }
         }
 
-        $statements_analyzer->node_data->setType($stmt, Type::getEmpty());
+        $statements_analyzer->node_data->setType($stmt, Type::getNever());
 
         $context->has_returned = true;
 

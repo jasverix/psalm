@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Internal\Analyzer\FunctionLike;
 
 use PhpParser;
@@ -8,7 +9,9 @@ use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Function_;
 use Psalm\CodeLocation;
+use Psalm\Config;
 use Psalm\Context;
+use Psalm\Internal\Analyzer\ClassAnalyzer;
 use Psalm\Internal\Analyzer\FunctionLikeAnalyzer;
 use Psalm\Internal\Analyzer\InterfaceAnalyzer;
 use Psalm\Internal\Analyzer\ProjectAnalyzer;
@@ -16,9 +19,14 @@ use Psalm\Internal\Analyzer\ScopeAnalyzer;
 use Psalm\Internal\Analyzer\SourceAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\Call\ClassTemplateParamCollector;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Analyzer\TraitAnalyzer;
 use Psalm\Internal\FileManipulation\FunctionDocblockManipulator;
+use Psalm\Internal\Provider\NodeDataProvider;
 use Psalm\Internal\Type\Comparator\TypeComparisonResult;
 use Psalm\Internal\Type\Comparator\UnionTypeComparator;
+use Psalm\Internal\Type\TemplateResult;
+use Psalm\Internal\Type\TemplateStandinTypeReplacer;
+use Psalm\Internal\Type\TypeExpander;
 use Psalm\Issue\ImplicitToStringCast;
 use Psalm\Issue\InvalidFalsableReturnType;
 use Psalm\Issue\InvalidNullableReturnType;
@@ -37,6 +45,9 @@ use Psalm\StatementsSource;
 use Psalm\Storage\FunctionLikeStorage;
 use Psalm\Storage\MethodStorage;
 use Psalm\Type;
+use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TNever;
+use Psalm\Type\Atomic\TNull;
 use Psalm\Type\Union;
 
 use function array_diff;
@@ -60,15 +71,14 @@ class ReturnTypeAnalyzer
      * @return  false|null
      *
      * @psalm-suppress PossiblyUnusedReturnValue unused but seems important
-     * @psalm-suppress ComplexMethod to be refactored
      */
     public static function verifyReturnType(
         FunctionLike $function,
         array $function_stmts,
         SourceAnalyzer $source,
-        \Psalm\Internal\Provider\NodeDataProvider $type_provider,
+        NodeDataProvider $type_provider,
         FunctionLikeAnalyzer $function_like_analyzer,
-        ?Type\Union $return_type = null,
+        ?Union $return_type = null,
         ?string $fq_class_name = null,
         ?CodeLocation $return_type_location = null,
         array $compatible_method_ids = [],
@@ -83,8 +93,8 @@ class ReturnTypeAnalyzer
 
         if ($source instanceof StatementsAnalyzer) {
             $function_like_storage = $function_like_analyzer->getFunctionLikeStorage($source);
-        } elseif ($source instanceof \Psalm\Internal\Analyzer\ClassAnalyzer
-            || $source instanceof \Psalm\Internal\Analyzer\TraitAnalyzer
+        } elseif ($source instanceof ClassAnalyzer
+            || $source instanceof TraitAnalyzer
         ) {
             $function_like_storage = $function_like_analyzer->getFunctionLikeStorage();
         }
@@ -98,15 +108,13 @@ class ReturnTypeAnalyzer
             )
         ) {
             if (!$return_type) {
-                if (IssueBuffer::accepts(
+                IssueBuffer::maybeAdd(
                     new MissingReturnType(
                         'Method ' . $cased_method_id . ' does not have a return type',
                         new CodeLocation($function_like_analyzer, $function->name, null, true)
                     ),
                     $suppressed_issues
-                )) {
-                    // fall through
-                }
+                );
             }
 
             return null;
@@ -148,7 +156,6 @@ class ReturnTypeAnalyzer
             && ScopeAnalyzer::getControlActions(
                 $function_stmts,
                 $type_provider,
-                $codebase->config->exit_functions,
                 []
             ) !== [ScopeAnalyzer::ACTION_END]
             && !$inferred_yield_types
@@ -158,9 +165,9 @@ class ReturnTypeAnalyzer
             // only add null if we have a return statement elsewhere and it wasn't void
             foreach ($inferred_return_type_parts as $inferred_return_type_part) {
                 if (!$inferred_return_type_part->isVoid()) {
-                    $atomic_null = new Type\Atomic\TNull();
+                    $atomic_null = new TNull();
                     $atomic_null->from_docblock = true;
-                    $inferred_return_type_parts[] = new Type\Union([$atomic_null]);
+                    $inferred_return_type_parts[] = new Union([$atomic_null]);
                     break;
                 }
             }
@@ -169,7 +176,6 @@ class ReturnTypeAnalyzer
         $control_actions = ScopeAnalyzer::getControlActions(
             $function_stmts,
             $type_provider,
-            $codebase->config->exit_functions,
             [],
             false
         );
@@ -229,12 +235,12 @@ class ReturnTypeAnalyzer
         }
 
         $number_of_types = count($inferred_return_type_parts);
-        // we filter TNever and TEmpty that have no bearing on the return type
+        // we filter TNever that have no bearing on the return type
         if ($number_of_types > 1) {
             $inferred_return_type_parts = array_filter(
                 $inferred_return_type_parts,
-                static function (Union $union_type) : bool {
-                    return !($union_type->isNever() || $union_type->isEmpty());
+                static function (Union $union_type): bool {
+                    return !$union_type->isNever();
                 }
             );
         }
@@ -242,15 +248,15 @@ class ReturnTypeAnalyzer
         $inferred_return_type_parts = array_values($inferred_return_type_parts);
 
         $inferred_return_type = $inferred_return_type_parts
-            ? \Psalm\Type::combineUnionTypeArray($inferred_return_type_parts, $codebase)
+            ? Type::combineUnionTypeArray($inferred_return_type_parts, $codebase)
             : Type::getVoid();
 
         if ($function_always_exits) {
-            $inferred_return_type = new Type\Union([new Type\Atomic\TNever]);
+            $inferred_return_type = new Union([new TNever]);
         }
 
         $inferred_yield_type = $inferred_yield_types
-            ? \Psalm\Type::combineUnionTypeArray($inferred_yield_types, $codebase)
+            ? Type::combineUnionTypeArray($inferred_yield_types, $codebase)
             : null;
 
         if ($inferred_yield_type) {
@@ -272,7 +278,7 @@ class ReturnTypeAnalyzer
             }
         }
 
-        $inferred_return_type = \Psalm\Internal\Type\TypeExpander::expandUnion(
+        $inferred_return_type = TypeExpander::expandUnion(
             $codebase,
             $inferred_return_type,
             $source->getFQCLN(),
@@ -286,7 +292,7 @@ class ReturnTypeAnalyzer
             && !$inferred_yield_type
             && !$inferred_return_type->isVoid()
         ) {
-            $inferred_return_type = new Type\Union([new Type\Atomic\TNamedObject('Generator')]);
+            $inferred_return_type = new Union([new TNamedObject('Generator')]);
         }
 
         if ($is_to_string) {
@@ -313,16 +319,14 @@ class ReturnTypeAnalyzer
             }
 
             if ($union_comparison_results->to_string_cast) {
-                if (IssueBuffer::accepts(
+                IssueBuffer::maybeAdd(
                     new ImplicitToStringCast(
                         'The declared return type for ' . $cased_method_id . ' expects string, ' .
                         '\'' . $inferred_return_type . '\' provided with a __toString method',
                         $return_type_location
                     ),
                     $suppressed_issues
-                )) {
-                    // fall through
-                }
+                );
             }
 
             return null;
@@ -353,16 +357,14 @@ class ReturnTypeAnalyzer
                         return null;
                     }
 
-                    if (IssueBuffer::accepts(
+                    IssueBuffer::maybeAdd(
                         new MissingClosureReturnType(
                             'Closure does not have a return type, expecting ' . $inferred_return_type->getId(),
                             new CodeLocation($function_like_analyzer, $function, null, true)
                         ),
                         $suppressed_issues,
                         !$inferred_return_type->hasMixed() && !$inferred_return_type->isNull()
-                    )) {
-                        // fall through
-                    }
+                    );
                 }
 
                 return null;
@@ -392,7 +394,7 @@ class ReturnTypeAnalyzer
                 return null;
             }
 
-            if (IssueBuffer::accepts(
+            IssueBuffer::maybeAdd(
                 new MissingReturnType(
                     'Method ' . $cased_method_id . ' does not have a return type' .
                       (!$inferred_return_type->hasMixed() ? ', expecting ' . $inferred_return_type->getId() : ''),
@@ -400,9 +402,7 @@ class ReturnTypeAnalyzer
                 ),
                 $suppressed_issues,
                 !$inferred_return_type->hasMixed() && !$inferred_return_type->isNull()
-            )) {
-                // fall through
-            }
+            );
 
             return null;
         }
@@ -419,7 +419,7 @@ class ReturnTypeAnalyzer
         }
 
         // passing it through fleshOutTypes eradicates errant $ vars
-        $declared_return_type = \Psalm\Internal\Type\TypeExpander::expandUnion(
+        $declared_return_type = TypeExpander::expandUnion(
             $codebase,
             $return_type,
             $self_fq_class_name,
@@ -488,7 +488,7 @@ class ReturnTypeAnalyzer
                 return null;
             }
 
-            if ($inferred_return_type->hasMixed() || $inferred_return_type->isEmpty()) {
+            if ($inferred_return_type->hasMixed()) {
                 if (IssueBuffer::accepts(
                     new MixedInferredReturnType(
                         'Could not verify return type \'' . $declared_return_type . '\' for ' .
@@ -620,7 +620,7 @@ class ReturnTypeAnalyzer
                     }
 
                     if ($check_for_less_specific_type
-                        && (\Psalm\Config::getInstance()->restrict_return_types
+                        && (Config::getInstance()->restrict_return_types
                             || (!$inferred_return_type->isNullable() && $declared_return_type->isNullable())
                             || (!$inferred_return_type->isFalsable() && $declared_return_type->isFalsable()))
                     ) {
@@ -643,7 +643,7 @@ class ReturnTypeAnalyzer
             }
 
             if ($union_comparison_results->to_string_cast) {
-                if (IssueBuffer::accepts(
+                IssueBuffer::maybeAdd(
                     new ImplicitToStringCast(
                         'The declared return type for ' . $cased_method_id . ' expects \'' .
                         $declared_return_type . '\', ' . '\'' . $inferred_return_type .
@@ -651,9 +651,7 @@ class ReturnTypeAnalyzer
                         $return_type_location
                     ),
                     $suppressed_issues
-                )) {
-                    // fall through
-                }
+                );
             }
 
             if (!$inferred_return_type->ignore_nullable_issues
@@ -763,7 +761,7 @@ class ReturnTypeAnalyzer
 
         if (!$storage->signature_return_type || $storage->signature_return_type === $storage->return_type) {
             foreach ($storage->return_type->getAtomicTypes() as $type) {
-                if ($type instanceof Type\Atomic\TNamedObject
+                if ($type instanceof TNamedObject
                     && 'parent' === $type->value
                     && null === $parent_class
                 ) {
@@ -780,7 +778,7 @@ class ReturnTypeAnalyzer
                 }
             }
 
-            $fleshed_out_return_type = \Psalm\Internal\Type\TypeExpander::expandUnion(
+            $fleshed_out_return_type = TypeExpander::expandUnion(
                 $codebase,
                 $storage->return_type,
                 $classlike_storage->name ?? null,
@@ -802,7 +800,7 @@ class ReturnTypeAnalyzer
             return null;
         }
 
-        $fleshed_out_signature_type = \Psalm\Internal\Type\TypeExpander::expandUnion(
+        $fleshed_out_signature_type = TypeExpander::expandUnion(
             $codebase,
             $storage->signature_return_type,
             $classlike_storage->name ?? null,
@@ -824,7 +822,7 @@ class ReturnTypeAnalyzer
             return null;
         }
 
-        $fleshed_out_return_type = \Psalm\Internal\Type\TypeExpander::expandUnion(
+        $fleshed_out_return_type = TypeExpander::expandUnion(
             $codebase,
             $storage->return_type,
             $classlike_storage->name ?? null,
@@ -851,19 +849,19 @@ class ReturnTypeAnalyzer
                 $classlike_storage,
                 $codebase->classlike_storage_provider->get($context->self),
                 strtolower($function->name->name),
-                new Type\Atomic\TNamedObject($context->self),
+                new TNamedObject($context->self),
                 true
             );
 
             $class_template_params = $class_template_params ?: [];
 
             if ($class_template_params) {
-                $template_result = new \Psalm\Internal\Type\TemplateResult(
+                $template_result = new TemplateResult(
                     $class_template_params,
                     []
                 );
 
-                $fleshed_out_return_type = \Psalm\Internal\Type\TemplateStandinTypeReplacer::replace(
+                $fleshed_out_return_type = TemplateStandinTypeReplacer::replace(
                     $fleshed_out_return_type,
                     $template_result,
                     $codebase,
@@ -921,7 +919,7 @@ class ReturnTypeAnalyzer
     private static function addOrUpdateReturnType(
         FunctionLike $function,
         ProjectAnalyzer $project_analyzer,
-        Type\Union $inferred_return_type,
+        Union $inferred_return_type,
         StatementsSource $source,
         bool $docblock_only = false,
         ?FunctionLikeStorage $function_like_storage = null
@@ -942,7 +940,7 @@ class ReturnTypeAnalyzer
         }
 
         $allow_native_type = !$docblock_only
-            && $codebase->php_major_version >= 7
+            && $codebase->analysis_php_version_id >= 70000
             && (
                 $codebase->allow_backwards_incompatible_changes
                 || $is_final
@@ -955,8 +953,7 @@ class ReturnTypeAnalyzer
                     $source->getNamespace(),
                     $source->getAliasedClassesFlipped(),
                     $source->getFQCLN(),
-                    $codebase->php_major_version,
-                    $codebase->php_minor_version
+                    $codebase->analysis_php_version_id
                 ) : null,
             $inferred_return_type->toNamespacedString(
                 $source->getNamespace(),
@@ -970,7 +967,7 @@ class ReturnTypeAnalyzer
                 $source->getFQCLN(),
                 true
             ),
-            $inferred_return_type->canBeFullyExpressedInPhp($codebase->php_major_version, $codebase->php_minor_version),
+            $inferred_return_type->canBeFullyExpressedInPhp($codebase->analysis_php_version_id),
             $function_like_storage->return_type_description ?? null
         );
     }

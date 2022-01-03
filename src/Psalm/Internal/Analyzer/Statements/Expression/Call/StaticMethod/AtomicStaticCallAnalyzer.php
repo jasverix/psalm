@@ -1,21 +1,27 @@
 <?php
+
 namespace Psalm\Internal\Analyzer\Statements\Expression\Call\StaticMethod;
 
+use Exception;
 use PhpParser;
 use Psalm\CodeLocation;
 use Psalm\Context;
 use Psalm\Internal\Analyzer\ClassLikeAnalyzer;
 use Psalm\Internal\Analyzer\ClassLikeNameOptions;
+use Psalm\Internal\Analyzer\FunctionLikeAnalyzer;
 use Psalm\Internal\Analyzer\MethodAnalyzer;
 use Psalm\Internal\Analyzer\NamespaceAnalyzer;
+use Psalm\Internal\Analyzer\Statements\Expression\Call\ArgumentMapPopulator;
 use Psalm\Internal\Analyzer\Statements\Expression\Call\ArgumentsAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\Call\Method\MethodVisibilityAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\Call\MethodCallAnalyzer;
+use Psalm\Internal\Analyzer\Statements\Expression\Call\StaticCallAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\CallAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\Fetch\AtomicPropertyFetchAnalyzer;
 use Psalm\Internal\Analyzer\Statements\ExpressionAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\MethodIdentifier;
+use Psalm\Internal\Type\TypeExpander;
 use Psalm\Issue\DeprecatedClass;
 use Psalm\Issue\ImpureMethodCall;
 use Psalm\Issue\InternalClass;
@@ -29,27 +35,46 @@ use Psalm\Node\Expr\VirtualMethodCall;
 use Psalm\Node\Expr\VirtualVariable;
 use Psalm\Node\Scalar\VirtualString;
 use Psalm\Node\VirtualArg;
+use Psalm\Storage\ClassLikeStorage;
+use Psalm\Storage\MethodStorage;
 use Psalm\Type;
+use Psalm\Type\Atomic;
+use Psalm\Type\Atomic\TClassString;
+use Psalm\Type\Atomic\TClosure;
+use Psalm\Type\Atomic\TDependentGetClass;
+use Psalm\Type\Atomic\TGenericObject;
+use Psalm\Type\Atomic\TLiteralClassString;
+use Psalm\Type\Atomic\TMixed;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TNull;
+use Psalm\Type\Atomic\TNumericString;
+use Psalm\Type\Atomic\TObject;
+use Psalm\Type\Atomic\TString;
+use Psalm\Type\Atomic\TTemplateParam;
+use Psalm\Type\Union;
 
 use function array_filter;
 use function array_map;
+use function assert;
 use function count;
 use function in_array;
 use function strtolower;
 
+/**
+ * @internal
+ */
 class AtomicStaticCallAnalyzer
 {
     public static function analyze(
         StatementsAnalyzer $statements_analyzer,
         PhpParser\Node\Expr\StaticCall $stmt,
         Context $context,
-        Type\Atomic $lhs_type_part,
+        Atomic $lhs_type_part,
         bool $ignore_nullable_issues,
         bool &$moved_call,
         bool &$has_mock,
         bool &$has_existing_method
-    ) : void {
+    ): void {
         $intersection_types = [];
 
         if ($lhs_type_part instanceof TNamedObject) {
@@ -78,7 +103,7 @@ class AtomicStaticCallAnalyzer
             }
 
             $intersection_types = $lhs_type_part->extra_types;
-        } elseif ($lhs_type_part instanceof Type\Atomic\TClassString
+        } elseif ($lhs_type_part instanceof TClassString
             && $lhs_type_part->as_type
         ) {
             $fq_class_name = $lhs_type_part->as_type->value;
@@ -95,7 +120,7 @@ class AtomicStaticCallAnalyzer
             }
 
             $intersection_types = $lhs_type_part->as_type->extra_types;
-        } elseif ($lhs_type_part instanceof Type\Atomic\TDependentGetClass
+        } elseif ($lhs_type_part instanceof TDependentGetClass
             && !$lhs_type_part->as_type->hasObject()
         ) {
             $fq_class_name = 'object';
@@ -104,7 +129,7 @@ class AtomicStaticCallAnalyzer
                 && $lhs_type_part->as_type->isSingle()
             ) {
                 foreach ($lhs_type_part->as_type->getAtomicTypes() as $typeof_type_atomic) {
-                    if ($typeof_type_atomic instanceof Type\Atomic\TNamedObject) {
+                    if ($typeof_type_atomic instanceof TNamedObject) {
                         $fq_class_name = $typeof_type_atomic->value;
                     }
                 }
@@ -113,7 +138,7 @@ class AtomicStaticCallAnalyzer
             if ($fq_class_name === 'object') {
                 return;
             }
-        } elseif ($lhs_type_part instanceof Type\Atomic\TLiteralClassString) {
+        } elseif ($lhs_type_part instanceof TLiteralClassString) {
             $fq_class_name = $lhs_type_part->value;
 
             if (!ClassLikeAnalyzer::checkFullyQualifiedClassLikeName(
@@ -126,7 +151,7 @@ class AtomicStaticCallAnalyzer
             )) {
                 return;
             }
-        } elseif ($lhs_type_part instanceof Type\Atomic\TTemplateParam
+        } elseif ($lhs_type_part instanceof TTemplateParam
             && !$lhs_type_part->as->isMixed()
             && !$lhs_type_part->as->hasObject()
         ) {
@@ -142,16 +167,14 @@ class AtomicStaticCallAnalyzer
             }
 
             if (!$fq_class_name) {
-                if (IssueBuffer::accepts(
+                IssueBuffer::maybeAdd(
                     new UndefinedClass(
                         'Type ' . $lhs_type_part->as . ' cannot be called as a class',
                         new CodeLocation($statements_analyzer->getSource(), $stmt),
                         (string) $lhs_type_part
                     ),
                     $statements_analyzer->getSuppressedIssues()
-                )) {
-                    // fall through
-                }
+                );
 
                 return;
             }
@@ -236,18 +259,19 @@ class AtomicStaticCallAnalyzer
 
     /**
      * @psalm-suppress UnusedReturnValue not used but seems important
+     * @psalm-suppress ComplexMethod to be refactored
      */
     private static function handleNamedCall(
         StatementsAnalyzer $statements_analyzer,
         PhpParser\Node\Expr\StaticCall $stmt,
         PhpParser\Node\Identifier $stmt_name,
         Context $context,
-        Type\Atomic $lhs_type_part,
+        Atomic $lhs_type_part,
         array $intersection_types,
         string $fq_class_name,
         bool &$moved_call,
         bool &$has_existing_method
-    ) : bool {
+    ): bool {
         $codebase = $statements_analyzer->getCodebase();
 
         $method_name_lc = strtolower($stmt_name->name);
@@ -259,15 +283,13 @@ class AtomicStaticCallAnalyzer
             && !$context->collect_initializations
             && !$context->collect_mutations
         ) {
-            \Psalm\Internal\Analyzer\Statements\Expression\Call\ArgumentMapPopulator::recordArgumentPositions(
+            ArgumentMapPopulator::recordArgumentPositions(
                 $statements_analyzer,
                 $stmt,
                 $codebase,
                 (string) $method_id
             );
         }
-
-        $args = $stmt->getArgs();
 
         if ($intersection_types
             && !$codebase->methods->methodExists($method_id)
@@ -325,6 +347,28 @@ class AtomicStaticCallAnalyzer
             }
         }
 
+        if ($stmt->isFirstClassCallable()) {
+            $method_storage = ($class_storage->methods[$method_name_lc] ??
+                ($class_storage->pseudo_static_methods[$method_name_lc] ?? null));
+
+            if ($method_storage) {
+                $return_type_candidate = new Union([new TClosure(
+                    'Closure',
+                    $method_storage->params,
+                    $method_storage->return_type,
+                    $method_storage->pure
+                )]);
+            } else {
+                $return_type_candidate = Type::getClosure();
+            }
+
+            $statements_analyzer->node_data->setType($stmt, $return_type_candidate);
+
+            return true;
+        }
+
+        $args = $stmt->getArgs();
+
         if (!$naive_method_exists
             && $class_storage->mixin_declaring_fqcln
             && $class_storage->namedMixins
@@ -359,17 +403,17 @@ class AtomicStaticCallAnalyzer
                     }
 
                     $mixin_candidates_no_generic = array_filter($mixin_candidates, function ($check): bool {
-                        return !($check instanceof Type\Atomic\TGenericObject);
+                        return !($check instanceof TGenericObject);
                     });
 
                     // $mixin_candidates_no_generic will only be empty when there are TGenericObject entries.
                     // In that case, Union will be initialized with an empty array but
                     // replaced with non-empty types in the following loop.
                     /** @psalm-suppress ArgumentTypeCoercion */
-                    $mixin_candidate_type = new Type\Union($mixin_candidates_no_generic);
+                    $mixin_candidate_type = new Union($mixin_candidates_no_generic);
 
                     foreach ($mixin_candidates as $tGenericMixin) {
-                        if (!($tGenericMixin instanceof Type\Atomic\TGenericObject)) {
+                        if (!($tGenericMixin instanceof TGenericObject)) {
                             continue;
                         }
 
@@ -379,7 +423,7 @@ class AtomicStaticCallAnalyzer
 
                         $new_mixin_candidate_type = AtomicPropertyFetchAnalyzer::localizePropertyType(
                             $codebase,
-                            new Type\Union([$lhs_type_part]),
+                            new Union([$lhs_type_part]),
                             $tGenericMixin,
                             $class_storage,
                             $mixin_declaring_class_storage
@@ -392,7 +436,7 @@ class AtomicStaticCallAnalyzer
                         $mixin_candidate_type = $new_mixin_candidate_type;
                     }
 
-                    $new_lhs_type = \Psalm\Internal\Type\TypeExpander::expandUnion(
+                    $new_lhs_type = TypeExpander::expandUnion(
                         $codebase,
                         $mixin_candidate_type,
                         $fq_class_name,
@@ -469,6 +513,15 @@ class AtomicStaticCallAnalyzer
                 true,
                 $context->insideUse()
             )) {
+                $callstatic_appearing_id = $codebase->methods->getAppearingMethodId($callstatic_id);
+                assert($callstatic_appearing_id !== null);
+                $callstatic_pure = false;
+                $callstatic_mutation_free = false;
+                if ($codebase->methods->hasStorage($callstatic_appearing_id)) {
+                    $callstatic_storage = $codebase->methods->getStorage($callstatic_appearing_id);
+                    $callstatic_pure = $callstatic_storage->pure;
+                    $callstatic_mutation_free = $callstatic_storage->mutation_free;
+                }
                 if ($codebase->methods->return_type_provider->has($fq_class_name)) {
                     $return_type_candidate = $codebase->methods->return_type_provider->getReturnType(
                         $statements_analyzer,
@@ -516,32 +569,28 @@ class AtomicStaticCallAnalyzer
                     }
 
                     if (!$context->inside_throw) {
-                        if ($context->pure && !$pseudo_method_storage->pure) {
-                            if (IssueBuffer::accepts(
+                        if ($context->pure && !$callstatic_pure) {
+                            IssueBuffer::maybeAdd(
                                 new ImpureMethodCall(
                                     'Cannot call an impure method from a pure context',
                                     new CodeLocation($statements_analyzer, $stmt_name)
                                 ),
                                 $statements_analyzer->getSuppressedIssues()
-                            )) {
-                                // fall through
-                            }
-                        } elseif ($context->mutation_free && !$pseudo_method_storage->mutation_free) {
-                            if (IssueBuffer::accepts(
+                            );
+                        } elseif ($context->mutation_free && !$callstatic_mutation_free) {
+                            IssueBuffer::maybeAdd(
                                 new ImpureMethodCall(
                                     'Cannot call a possibly-mutating method from a mutation-free context',
                                     new CodeLocation($statements_analyzer, $stmt_name)
                                 ),
                                 $statements_analyzer->getSuppressedIssues()
-                            )) {
-                                // fall through
-                            }
+                            );
                         } elseif ($statements_analyzer->getSource()
-                            instanceof \Psalm\Internal\Analyzer\FunctionLikeAnalyzer
+                            instanceof FunctionLikeAnalyzer
                             && $statements_analyzer->getSource()->track_mutations
-                            && !$pseudo_method_storage->pure
+                            && !$callstatic_pure
                         ) {
-                            if (!$pseudo_method_storage->mutation_free) {
+                            if (!$callstatic_mutation_free) {
                                 $statements_analyzer->getSource()->inferred_has_mutation = true;
                             }
 
@@ -672,20 +721,18 @@ class AtomicStaticCallAnalyzer
         $class_storage = $codebase->classlike_storage_provider->get($fq_class_name);
 
         if ($class_storage->deprecated && $fq_class_name !== $context->self) {
-            if (IssueBuffer::accepts(
+            IssueBuffer::maybeAdd(
                 new DeprecatedClass(
                     $fq_class_name . ' is marked deprecated',
                     new CodeLocation($statements_analyzer->getSource(), $stmt),
                     $fq_class_name
                 ),
                 $statements_analyzer->getSuppressedIssues()
-            )) {
-                // fall through
-            }
+            );
         }
 
         if ($context->self && ! NamespaceAnalyzer::isWithin($context->self, $class_storage->internal)) {
-            if (IssueBuffer::accepts(
+            IssueBuffer::maybeAdd(
                 new InternalClass(
                     $fq_class_name . ' is internal to ' . $class_storage->internal
                         . ' but called from ' . $context->self,
@@ -693,9 +740,7 @@ class AtomicStaticCallAnalyzer
                     $fq_class_name
                 ),
                 $statements_analyzer->getSuppressedIssues()
-            )) {
-                // fall through
-            }
+            );
         }
 
         if (MethodVisibilityAnalyzer::analyze(
@@ -794,8 +839,8 @@ class AtomicStaticCallAnalyzer
         MethodIdentifier $method_id,
         string $fq_class_name,
         array $args,
-        \Psalm\Storage\ClassLikeStorage $class_storage,
-        \Psalm\Storage\MethodStorage $pseudo_method_storage,
+        ClassLikeStorage $class_storage,
+        MethodStorage $pseudo_method_storage,
         Context $context
     ): ?bool {
         if (ArgumentsAnalyzer::analyze(
@@ -851,7 +896,7 @@ class AtomicStaticCallAnalyzer
                     new CodeLocation($statements_analyzer, $stmt),
                     $context
                 );
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 // do nothing
             }
         }
@@ -859,7 +904,7 @@ class AtomicStaticCallAnalyzer
         if ($pseudo_method_storage->return_type) {
             $return_type_candidate = clone $pseudo_method_storage->return_type;
 
-            $return_type_candidate = \Psalm\Internal\Type\TypeExpander::expandUnion(
+            $return_type_candidate = TypeExpander::expandUnion(
                 $statements_analyzer->getCodebase(),
                 $return_type_candidate,
                 $fq_class_name,
@@ -868,7 +913,7 @@ class AtomicStaticCallAnalyzer
             );
 
             if ($method_storage) {
-                \Psalm\Internal\Analyzer\Statements\Expression\Call\StaticCallAnalyzer::taintReturnType(
+                StaticCallAnalyzer::taintReturnType(
                     $statements_analyzer,
                     $stmt,
                     $method_id,
@@ -898,16 +943,16 @@ class AtomicStaticCallAnalyzer
         StatementsAnalyzer $statements_analyzer,
         PhpParser\Node\Expr\StaticCall $stmt,
         Context $context,
-        Type\Atomic $lhs_type_part,
+        Atomic $lhs_type_part,
         bool $ignore_nullable_issues
-    ) : void {
+    ): void {
         $codebase = $statements_analyzer->getCodebase();
         $config = $codebase->config;
 
-        if ($lhs_type_part instanceof Type\Atomic\TMixed
-            || $lhs_type_part instanceof Type\Atomic\TTemplateParam
-            || $lhs_type_part instanceof Type\Atomic\TClassString
-            || $lhs_type_part instanceof Type\Atomic\TObject
+        if ($lhs_type_part instanceof TMixed
+            || $lhs_type_part instanceof TTemplateParam
+            || $lhs_type_part instanceof TClassString
+            || $lhs_type_part instanceof TObject
         ) {
             if ($stmt->name instanceof PhpParser\Node\Identifier) {
                 $codebase->analyzer->addMixedMemberName(
@@ -916,54 +961,48 @@ class AtomicStaticCallAnalyzer
                 );
             }
 
-            if (IssueBuffer::accepts(
+            IssueBuffer::maybeAdd(
                 new MixedMethodCall(
                     'Cannot call method on an unknown class',
                     new CodeLocation($statements_analyzer->getSource(), $stmt)
                 ),
                 $statements_analyzer->getSuppressedIssues()
-            )) {
-                // fall through
-            }
+            );
 
             return;
         }
 
-        if ($lhs_type_part instanceof Type\Atomic\TString) {
+        if ($lhs_type_part instanceof TString) {
             if ($config->allow_string_standin_for_class
-                && !$lhs_type_part instanceof Type\Atomic\TNumericString
+                && !$lhs_type_part instanceof TNumericString
             ) {
                 return;
             }
 
-            if (IssueBuffer::accepts(
+            IssueBuffer::maybeAdd(
                 new InvalidStringClass(
                     'String cannot be used as a class',
                     new CodeLocation($statements_analyzer->getSource(), $stmt)
                 ),
                 $statements_analyzer->getSuppressedIssues()
-            )) {
-                // fall through
-            }
+            );
 
             return;
         }
 
-        if ($lhs_type_part instanceof Type\Atomic\TNull
+        if ($lhs_type_part instanceof TNull
             && $ignore_nullable_issues
         ) {
             return;
         }
 
-        if (IssueBuffer::accepts(
+        IssueBuffer::maybeAdd(
             new UndefinedClass(
                 'Type ' . $lhs_type_part . ' cannot be called as a class',
                 new CodeLocation($statements_analyzer->getSource(), $stmt),
                 (string) $lhs_type_part
             ),
             $statements_analyzer->getSuppressedIssues()
-        )) {
-            // fall through
-        }
+        );
     }
 }

@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Type\Atomic;
 
 use Psalm\Codebase;
@@ -8,7 +9,15 @@ use Psalm\Internal\Type\TemplateResult;
 use Psalm\Internal\Type\TemplateStandinTypeReplacer;
 use Psalm\Type;
 use Psalm\Type\Atomic;
+use Psalm\Type\Atomic\TArray;
+use Psalm\Type\Atomic\TGenericObject;
+use Psalm\Type\Atomic\TIterable;
+use Psalm\Type\Atomic\TKeyedArray;
+use Psalm\Type\Atomic\TList;
+use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\TypeNode;
 use Psalm\Type\Union;
+use UnexpectedValueException;
 
 use function array_map;
 use function array_values;
@@ -90,7 +99,7 @@ trait GenericTrait
 
             $value_type = $this->type_params[1];
 
-            if ($value_type->isMixed() || $value_type->isEmpty()) {
+            if ($value_type->isMixed() || $value_type->isNever()) {
                 return $base_value;
             }
 
@@ -171,9 +180,9 @@ trait GenericTrait
     }
 
     /**
-     * @return array<\Psalm\Type\TypeNode>
+     * @return array<TypeNode>
      */
-    public function getChildNodes() : array
+    public function getChildNodes(): array
     {
         return $this->type_params;
     }
@@ -189,17 +198,17 @@ trait GenericTrait
         bool $replace = true,
         bool $add_lower_bound = false,
         int $depth = 0
-    ) : Atomic {
-        if ($input_type instanceof Atomic\TList) {
-            $input_type = new Atomic\TArray([Type::getInt(), $input_type->type_param]);
+    ): Atomic {
+        if ($input_type instanceof TList) {
+            $input_type = new TArray([Type::getInt(), $input_type->type_param]);
         }
 
         $input_object_type_params = [];
 
         $container_type_params_covariant = [];
 
-        if ($input_type instanceof Atomic\TGenericObject
-            && ($this instanceof Atomic\TGenericObject || $this instanceof Atomic\TIterable)
+        if ($input_type instanceof TGenericObject
+            && ($this instanceof TGenericObject || $this instanceof TIterable)
             && $codebase
         ) {
             $input_object_type_params = TemplateStandinTypeReplacer::getMappedGenericTypeParams(
@@ -215,21 +224,21 @@ trait GenericTrait
         foreach ($atomic->type_params as $offset => $type_param) {
             $input_type_param = null;
 
-            if (($input_type instanceof Atomic\TIterable
-                    || $input_type instanceof Atomic\TArray)
+            if (($input_type instanceof TIterable
+                    || $input_type instanceof TArray)
                 &&
                     isset($input_type->type_params[$offset])
             ) {
                 $input_type_param = $input_type->type_params[$offset];
-            } elseif ($input_type instanceof Atomic\TKeyedArray) {
+            } elseif ($input_type instanceof TKeyedArray) {
                 if ($offset === 0) {
                     $input_type_param = $input_type->getGenericKeyType();
                 } elseif ($offset === 1) {
                     $input_type_param = $input_type->getGenericValueType();
                 } else {
-                    throw new \UnexpectedValueException('Not expecting offset of ' . $offset);
+                    throw new UnexpectedValueException('Not expecting offset of ' . $offset);
                 }
-            } elseif ($input_type instanceof Atomic\TNamedObject
+            } elseif ($input_type instanceof TNamedObject
                 && isset($input_object_type_params[$offset])
             ) {
                 $input_type_param = $input_object_type_params[$offset];
@@ -248,7 +257,7 @@ trait GenericTrait
                 $replace,
                 $add_lower_bound,
                 !($container_type_params_covariant[$offset] ?? true)
-                    && $this instanceof Atomic\TGenericObject
+                    && $this instanceof TGenericObject
                     ? $this->value
                     : null,
                 $depth + 1
@@ -261,7 +270,7 @@ trait GenericTrait
     public function replaceTemplateTypesWithArgTypes(
         TemplateResult $template_result,
         ?Codebase $codebase
-    ) : void {
+    ): void {
         foreach ($this->type_params as $offset => $type_param) {
             TemplateInferredTypeReplacer::replace(
                 $type_param,
@@ -269,8 +278,8 @@ trait GenericTrait
                 $codebase
             );
 
-            if ($this instanceof Atomic\TArray && $offset === 0 && $type_param->isMixed()) {
-                $this->type_params[0] = \Psalm\Type::getArrayKey();
+            if ($this instanceof TArray && $offset === 0 && $type_param->isMixed()) {
+                $this->type_params[0] = Type::getArrayKey();
             }
         }
 

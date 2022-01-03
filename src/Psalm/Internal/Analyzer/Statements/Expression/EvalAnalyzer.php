@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Internal\Analyzer\Statements\Expression;
 
 use PhpParser;
@@ -11,6 +12,9 @@ use Psalm\Internal\DataFlow\TaintSink;
 use Psalm\Issue\ForbiddenCode;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\Event\AddRemoveTaintsEvent;
+use Psalm\Type\TaintKind;
+
+use function in_array;
 
 /**
  * @internal
@@ -21,7 +25,7 @@ class EvalAnalyzer
         StatementsAnalyzer $statements_analyzer,
         PhpParser\Node\Expr\Eval_ $stmt,
         Context $context
-    ) : void {
+    ): void {
         ExpressionAnalyzer::analyze($statements_analyzer, $stmt->expr, $context);
 
         $codebase = $statements_analyzer->getCodebase();
@@ -31,7 +35,7 @@ class EvalAnalyzer
         if ($expr_type) {
             if ($statements_analyzer->data_flow_graph instanceof TaintFlowGraph
                 && $expr_type->parent_nodes
-                && !\in_array('TaintedInput', $statements_analyzer->getSuppressedIssues())
+                && !in_array('TaintedInput', $statements_analyzer->getSuppressedIssues())
             ) {
                 $arg_location = new CodeLocation($statements_analyzer->getSource(), $stmt->expr);
 
@@ -43,7 +47,7 @@ class EvalAnalyzer
                     $arg_location
                 );
 
-                $eval_param_sink->taints = [\Psalm\Type\TaintKind::INPUT_EVAL];
+                $eval_param_sink->taints = [TaintKind::INPUT_EVAL];
 
                 $statements_analyzer->data_flow_graph->addSink($eval_param_sink);
 
@@ -66,15 +70,13 @@ class EvalAnalyzer
         }
 
         if (isset($codebase->config->forbidden_functions['eval'])) {
-            if (IssueBuffer::accepts(
+            IssueBuffer::maybeAdd(
                 new ForbiddenCode(
                     'You have forbidden the use of eval',
                     new CodeLocation($statements_analyzer, $stmt)
                 ),
                 $statements_analyzer->getSuppressedIssues()
-            )) {
-                // continue
-            }
+            );
         }
 
         $context->check_classes = false;

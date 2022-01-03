@@ -1,14 +1,17 @@
 <?php
+
 namespace Psalm\Tests\Loop;
 
-use Psalm\Tests\Traits;
+use Psalm\Tests\TestCase;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use const DIRECTORY_SEPARATOR;
 
-class ForeachTest extends \Psalm\Tests\TestCase
+class ForeachTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -427,6 +430,29 @@ class ForeachTest extends \Psalm\Tests\TestCase
                 'error_levels' => [
                     'MixedAssignment',
                 ],
+            ],
+            'noMixedAssigmentWithIfAssertion' => [
+                '<?php
+                    $object = new stdClass();
+                    $reflection = new ReflectionClass($object);
+
+                    foreach ($reflection->getProperties() as $property) {
+                        $message = $property->getValue($reflection->newInstance());
+
+                        if (!is_string($message)) {
+                            throw new RuntimeException();
+                        }
+                    }',
+            ],
+            'noMixedAssigmentWithAssertion' => [
+                '<?php
+                    $object = new stdClass();
+                    $reflection = new ReflectionClass($object);
+
+                    foreach ($reflection->getProperties() as $property) {
+                        $message = $property->getValue($reflection->newInstance());
+                        assert(is_string($message));
+                    }',
             ],
             'nullToMixedWithNullCheckAndContinue' => [
                 '<?php

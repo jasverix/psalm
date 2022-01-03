@@ -7,7 +7,16 @@ use Psalm\Internal\Analyzer\ProjectAnalyzer;
 use Psalm\Internal\CliUtils;
 use Psalm\Internal\Composer;
 use Psalm\Internal\ErrorHandler;
+use Psalm\Internal\Fork\PsalmRestarter;
 use Psalm\Internal\IncludeCollector;
+use Psalm\Internal\Provider\ClassLikeStorageCacheProvider;
+use Psalm\Internal\Provider\FileProvider;
+use Psalm\Internal\Provider\FileReferenceCacheProvider;
+use Psalm\Internal\Provider\FileStorageCacheProvider;
+use Psalm\Internal\Provider\ParserCacheProvider;
+use Psalm\Internal\Provider\ProjectCacheProvider;
+use Psalm\Internal\Provider\Providers;
+use Psalm\Report;
 
 use function array_key_exists;
 use function array_map;
@@ -43,6 +52,9 @@ require_once __DIR__ . '/../CliUtils.php';
 require_once __DIR__ . '/../Composer.php';
 require_once __DIR__ . '/../IncludeCollector.php';
 
+/**
+ * @internal
+ */
 final class LanguageServer
 {
     /** @param array<int,string> $argv */
@@ -210,6 +222,8 @@ HELP;
         $include_collector = new IncludeCollector();
 
         $first_autoloader = $include_collector->runAndCollect(
+            // we ignore the FQN because of a hack in scoper.inc that needs full path
+            // phpcs:ignore SlevomatCodingStandard.Namespaces.ReferenceUsedNamesOnly.ReferenceViaFullyQualifiedName
             function () use ($current_dir, $options, $vendor_dir): ?\Composer\Autoload\ClassLoader {
                 return CliUtils::requireAutoloaders($current_dir, isset($options['r']), $vendor_dir);
             }
@@ -220,7 +234,7 @@ HELP;
             exit;
         }
 
-        $ini_handler = new \Psalm\Internal\Fork\PsalmRestarter('PSALM');
+        $ini_handler = new PsalmRestarter('PSALM');
 
         $ini_handler->disableExtension('grpc');
 
@@ -243,7 +257,7 @@ HELP;
         $config = CliUtils::initializeConfig(
             $path_to_config,
             $current_dir,
-            \Psalm\Report::TYPE_CONSOLE,
+            Report::TYPE_CONSOLE,
             $first_autoloader
         );
         $config->setIncludeCollector($include_collector);
@@ -265,13 +279,13 @@ HELP;
             exit;
         }
 
-        $providers = new \Psalm\Internal\Provider\Providers(
-            new \Psalm\Internal\Provider\FileProvider,
-            new \Psalm\Internal\Provider\ParserCacheProvider($config),
-            new \Psalm\Internal\Provider\FileStorageCacheProvider($config),
-            new \Psalm\Internal\Provider\ClassLikeStorageCacheProvider($config),
-            new \Psalm\Internal\Provider\FileReferenceCacheProvider($config),
-            new \Psalm\Internal\Provider\ProjectCacheProvider(Composer::getLockFilePath($current_dir))
+        $providers = new Providers(
+            new FileProvider,
+            new ParserCacheProvider($config),
+            new FileStorageCacheProvider($config),
+            new ClassLikeStorageCacheProvider($config),
+            new FileReferenceCacheProvider($config),
+            new ProjectCacheProvider(Composer::getLockFilePath($current_dir))
         );
 
         $project_analyzer = new ProjectAnalyzer(

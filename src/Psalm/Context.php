@@ -1,10 +1,18 @@
 <?php
+
 namespace Psalm;
 
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\Clause;
+use Psalm\Internal\ReferenceConstraint;
+use Psalm\Internal\Scope\CaseScope;
+use Psalm\Internal\Scope\FinallyScope;
+use Psalm\Internal\Scope\IfScope;
+use Psalm\Internal\Scope\LoopScope;
 use Psalm\Internal\Type\AssertionReconciler;
 use Psalm\Storage\FunctionLikeStorage;
+use Psalm\Type\Atomic\DependentType;
+use Psalm\Type\Atomic\TArray;
 use Psalm\Type\Union;
 
 use function array_keys;
@@ -22,7 +30,7 @@ use function strtolower;
 class Context
 {
     /**
-     * @var array<string, Type\Union>
+     * @var array<string, Union>
      */
     public $vars_in_scope = [];
 
@@ -107,6 +115,7 @@ class Context
 
     /**
      * @var string|null
+     * The name of the current class. Null if outside a class.
      */
     public $self;
 
@@ -197,7 +206,7 @@ class Context
     public $initialized_methods;
 
     /**
-     * @var array<string, Type\Union>
+     * @var array<string, Union>
      */
     public $constants = [];
 
@@ -218,7 +227,7 @@ class Context
     /**
      * A list of variables that have been passed by reference (where we know their type)
      *
-     * @var array<string, \Psalm\Internal\ReferenceConstraint>
+     * @var array<string, ReferenceConstraint>
      */
     public $byref_constraints = [];
 
@@ -228,11 +237,6 @@ class Context
      * @var Context|null
      */
     public $parent_context;
-
-    /**
-     * @var array<string, Type\Union>
-     */
-    public $possible_param_types = [];
 
     /**
      * A list of vars that have been assigned to
@@ -288,17 +292,17 @@ class Context
     public $inside_loop = false;
 
     /**
-     * @var Internal\Scope\LoopScope|null
+     * @var LoopScope|null
      */
     public $loop_scope;
 
     /**
-     * @var Internal\Scope\CaseScope|null
+     * @var CaseScope|null
      */
     public $case_scope;
 
     /**
-     * @var Internal\Scope\FinallyScope|null
+     * @var FinallyScope|null
      */
     public $finally_scope;
 
@@ -308,7 +312,7 @@ class Context
     public $if_context;
 
     /**
-     * @var \Psalm\Internal\Scope\IfScope|null
+     * @var IfScope|null
      */
     public $if_scope;
 
@@ -349,11 +353,13 @@ class Context
 
     /**
      * @var bool
+     * Set by @psalm-immutable
      */
     public $mutation_free = false;
 
     /**
      * @var bool
+     * Set by @psalm-external-mutation-free
      */
     public $external_mutation_free = false;
 
@@ -451,9 +457,9 @@ class Context
     }
 
     /**
-     * @param  array<string, Type\Union> $new_vars_in_scope
+     * @param  array<string, Union> $new_vars_in_scope
      *
-     * @return array<string,Type\Union>
+     * @return array<string, Union>
      */
     public function getRedefinedVars(array $new_vars_in_scope, bool $include_new_vars = false): array
     {
@@ -663,7 +669,7 @@ class Context
             }
 
             foreach ($type->getAtomicTypes() as $atomic_type) {
-                if ($atomic_type instanceof Type\Atomic\DependentType
+                if ($atomic_type instanceof DependentType
                     && $atomic_type->getVarId() === $remove_var_id
                 ) {
                     $type->addType($atomic_type->getReplacement());
@@ -754,7 +760,7 @@ class Context
         return isset($this->vars_in_scope[$var_name]);
     }
 
-    public function getScopeSummary() : string
+    public function getScopeSummary(): string
     {
         $summary = [];
         foreach ($this->vars_possibly_in_scope as $k => $_) {
@@ -770,8 +776,8 @@ class Context
     public function defineGlobals(): void
     {
         $globals = [
-            '$argv' => new Type\Union([
-                new Type\Atomic\TArray([Type::getInt(), Type::getString()]),
+            '$argv' => new Union([
+                new TArray([Type::getInt(), Type::getString()]),
             ]),
             '$argc' => Type::getInt(),
         ];

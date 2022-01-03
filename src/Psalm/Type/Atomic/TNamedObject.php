@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Type\Atomic;
 
 use Psalm\Codebase;
@@ -117,42 +118,37 @@ class TNamedObject extends Atomic
         ?string $namespace,
         array $aliased_classes,
         ?string $this_class,
-        int $php_major_version,
-        int $php_minor_version
+        int $analysis_php_version_id
     ): ?string {
         if ($this->value === 'static') {
-            return $php_major_version >= 8 ? 'static' : null;
+            return $analysis_php_version_id >= 80000 ? 'static' : null;
         }
 
         if ($this->was_static && $this->value === $this_class) {
-            return $php_major_version >= 8 ? 'static' : 'self';
+            return $analysis_php_version_id >= 80000 ? 'static' : 'self';
         }
 
         $result = $this->toNamespacedString($namespace, $aliased_classes, $this_class, false);
         $intersection = strrpos($result, '&');
-        if ($intersection === false || (
-                ($php_major_version === 8 && $php_minor_version >= 1) ||
-                ($php_major_version >= 9)
-            )
-        ) {
+        if ($intersection === false || $analysis_php_version_id >= 80100) {
             return $result;
         }
         return substr($result, $intersection+1);
     }
 
-    public function canBeFullyExpressedInPhp(int $php_major_version, int $php_minor_version): bool
+    public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool
     {
-        return ($this->value !== 'static' && $this->was_static === false) || $php_major_version >= 8;
+        return ($this->value !== 'static' && $this->was_static === false) || $analysis_php_version_id >= 80000;
     }
 
     public function replaceTemplateTypesWithArgTypes(
         TemplateResult $template_result,
         ?Codebase $codebase
-    ) : void {
+    ): void {
         $this->replaceIntersectionTemplateTypesWithArgTypes($template_result, $codebase);
     }
 
-    public function getChildNodes() : array
+    public function getChildNodes(): array
     {
         return $this->extra_types ?? [];
     }

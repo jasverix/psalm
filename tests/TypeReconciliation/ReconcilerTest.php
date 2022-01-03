@@ -1,13 +1,19 @@
 <?php
+
 namespace Psalm\Tests\TypeReconciliation;
 
 use Psalm\Context;
 use Psalm\Internal\Analyzer\FileAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Provider\NodeDataProvider;
+use Psalm\Internal\Type\AssertionReconciler;
 use Psalm\Internal\Type\Comparator\UnionTypeComparator;
+use Psalm\Tests\TestCase;
 use Psalm\Type;
+use Psalm\Type\Atomic\TLiteralString;
+use Psalm\Type\Union;
 
-class ReconcilerTest extends \Psalm\Tests\TestCase
+class ReconcilerTest extends TestCase
 {
     /** @var FileAnalyzer */
     protected $file_analyzer;
@@ -15,7 +21,7 @@ class ReconcilerTest extends \Psalm\Tests\TestCase
     /** @var StatementsAnalyzer */
     protected $statements_analyzer;
 
-    public function setUp() : void
+    public function setUp(): void
     {
         parent::setUp();
 
@@ -23,7 +29,7 @@ class ReconcilerTest extends \Psalm\Tests\TestCase
         $this->file_analyzer->context = new Context();
         $this->statements_analyzer = new StatementsAnalyzer(
             $this->file_analyzer,
-            new \Psalm\Internal\Provider\NodeDataProvider()
+            new NodeDataProvider()
         );
 
         $this->addFile('newfile.php', '
@@ -42,7 +48,7 @@ class ReconcilerTest extends \Psalm\Tests\TestCase
      */
     public function testReconcilation(string $expected_type, string $assertion, string $original_type): void
     {
-        $reconciled = \Psalm\Internal\Type\AssertionReconciler::reconcile(
+        $reconciled = AssertionReconciler::reconcile(
             $assertion,
             Type::parseString($original_type),
             null,
@@ -98,7 +104,7 @@ class ReconcilerTest extends \Psalm\Tests\TestCase
             'nullWithSomeClassPipeNull' => ['null', 'null', 'SomeClass|null'],
             'nullWithMixed' => ['null', 'null', 'mixed'],
 
-            'falsyWithSomeClass' => ['empty', 'falsy', 'SomeClass'],
+            'falsyWithSomeClass' => ['never', 'falsy', 'SomeClass'],
             'falsyWithSomeClassPipeFalse' => ['false', 'falsy', 'SomeClass|false'],
             'falsyWithSomeClassPipeBool' => ['false', 'falsy', 'SomeClass|bool'],
             'falsyWithMixed' => ['empty-mixed', 'falsy', 'mixed'],
@@ -170,7 +176,7 @@ class ReconcilerTest extends \Psalm\Tests\TestCase
                 'array<int, array<string, string>>',
             ],
             'objectLikeTypeWithPossiblyUndefinedToEmpty' => [
-                'array<empty, empty>',
+                'array<never, never>',
                 'array{a?: string, b?: string}',
             ],
             'literalNumericStringInt' => [
@@ -204,10 +210,10 @@ class ReconcilerTest extends \Psalm\Tests\TestCase
         );
         $this->project_analyzer->getCodebase()->scanFiles();
 
-        $reconciled = \Psalm\Internal\Type\AssertionReconciler::reconcile(
+        $reconciled = AssertionReconciler::reconcile(
             $assertion,
-            new Type\Union([
-                new Type\Atomic\TLiteralString(''),
+            new Union([
+                new TLiteralString(''),
             ]),
             null,
             $this->statements_analyzer,

@@ -1,10 +1,11 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Psalm\Internal\Codebase;
 
 use Psalm\Codebase;
-use Psalm\Type;
+use Psalm\Type\Atomic;
 use Psalm\Type\Atomic\TMixed;
 
 use function array_merge;
@@ -19,7 +20,7 @@ use function str_replace;
 final class ClassConstantByWildcardResolver
 {
     /**
-     * @var \Psalm\Codebase
+     * @var Codebase
      */
     private $codebase;
 
@@ -29,7 +30,7 @@ final class ClassConstantByWildcardResolver
     }
 
     /**
-     * @return list<Type\Atomic>|null
+     * @return list<Atomic>|null
      */
     public function resolve(string $class_name, string $constant_pattern): ?array
     {

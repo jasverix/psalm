@@ -1,7 +1,10 @@
 <?php
+
 namespace Psalm\Config;
 
 use Psalm\Exception\ConfigException;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use SimpleXMLElement;
 
 use function array_filter;
@@ -108,12 +111,8 @@ class FileFilter
             /** @var array $directory */
             foreach ($config['directory'] as $directory) {
                 $directory_path = (string) ($directory['name'] ?? '');
-                $ignore_type_stats = strtolower(
-                    isset($directory['ignoreTypeStats']) ? (string) $directory['ignoreTypeStats'] : ''
-                ) === 'true';
-                $declare_strict_types = strtolower(
-                    isset($directory['useStrictTypes']) ? (string) $directory['useStrictTypes'] : ''
-                ) === 'true';
+                $ignore_type_stats = (bool) ($directory['ignoreTypeStats'] ?? false);
+                $declare_strict_types = (bool) ($directory['useStrictTypes'] ?? false);
 
                 if ($directory_path[0] === '/' && DIRECTORY_SEPARATOR === '/') {
                     $prospective_directory_path = $directory_path;
@@ -183,8 +182,8 @@ class FileFilter
                     );
                 }
 
-                /** @var \RecursiveDirectoryIterator */
-                $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory_path));
+                /** @var RecursiveDirectoryIterator */
+                $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory_path));
                 $iterator->rewind();
 
                 while ($iterator->valid()) {
@@ -268,8 +267,7 @@ class FileFilter
 
                 if (!$file_path && !$allow_missing_files) {
                     throw new ConfigException(
-                        'Could not resolve config path to ' . $base_dir . DIRECTORY_SEPARATOR .
-                        $file_path
+                        'Could not resolve config path to ' . $prospective_file_path
                     );
                 }
 
@@ -283,7 +281,7 @@ class FileFilter
                 $class_name = strtolower((string) ($referenced_class['name'] ?? ''));
 
                 if (strpos($class_name, '*') !== false) {
-                    $regex = '/' . \str_replace('*', '.*', str_replace('\\', '\\\\', $class_name)) . '/i';
+                    $regex = '/' . str_replace('*', '.*', str_replace('\\', '\\\\', $class_name)) . '/i';
                     $filter->fq_classlike_patterns[] = $regex;
                 } else {
                     $filter->fq_classlike_names[] = $class_name;
@@ -343,24 +341,19 @@ class FileFilter
 
         if ($e->directory) {
             $config['directory'] = [];
-            /** @var \SimpleXMLElement $directory */
+            /** @var SimpleXMLElement $directory */
             foreach ($e->directory as $directory) {
                 $config['directory'][] = [
                     'name' => (string) $directory['name'],
-                    'ignoreTypeStats' => strtolower(
-                        isset($directory['ignoreTypeStats']) ? (string) $directory['ignoreTypeStats'] : ''
-                    ) === 'true',
-
-                    'useStrictTypes' => strtolower(
-                        isset($directory['useStrictTypes']) ? (string) $directory['useStrictTypes'] : ''
-                    ) === 'true',
+                    'ignoreTypeStats' => strtolower((string) ($directory['ignoreTypeStats'] ?? '')) === 'true',
+                    'useStrictTypes' => strtolower((string) ($directory['useStrictTypes'] ?? '')) === 'true',
                 ];
             }
         }
 
         if ($e->file) {
             $config['file'] = [];
-            /** @var \SimpleXMLElement $file */
+            /** @var SimpleXMLElement $file */
             foreach ($e->file as $file) {
                 $config['file'][]['name'] = (string) $file['name'];
             }
@@ -368,7 +361,7 @@ class FileFilter
 
         if ($e->referencedClass) {
             $config['referencedClass'] = [];
-            /** @var \SimpleXMLElement $referenced_class */
+            /** @var SimpleXMLElement $referenced_class */
             foreach ($e->referencedClass as $referenced_class) {
                 $config['referencedClass'][]['name'] = strtolower((string)$referenced_class['name']);
             }
@@ -376,7 +369,7 @@ class FileFilter
 
         if ($e->referencedMethod) {
             $config['referencedMethod'] = [];
-            /** @var \SimpleXMLElement $referenced_method */
+            /** @var SimpleXMLElement $referenced_method */
             foreach ($e->referencedMethod as $referenced_method) {
                 $config['referencedMethod'][]['name'] = (string)$referenced_method['name'];
             }
@@ -384,7 +377,7 @@ class FileFilter
 
         if ($e->referencedFunction) {
             $config['referencedFunction'] = [];
-            /** @var \SimpleXMLElement $referenced_function */
+            /** @var SimpleXMLElement $referenced_function */
             foreach ($e->referencedFunction as $referenced_function) {
                 $config['referencedFunction'][]['name'] = strtolower((string)$referenced_function['name']);
             }
@@ -392,7 +385,7 @@ class FileFilter
 
         if ($e->referencedProperty) {
             $config['referencedProperty'] = [];
-            /** @var \SimpleXMLElement $referenced_property */
+            /** @var SimpleXMLElement $referenced_property */
             foreach ($e->referencedProperty as $referenced_property) {
                 $config['referencedProperty'][]['name'] = strtolower((string)$referenced_property['name']);
             }
@@ -401,7 +394,7 @@ class FileFilter
         if ($e->referencedVariable) {
             $config['referencedVariable'] = [];
 
-            /** @var \SimpleXMLElement $referenced_variable */
+            /** @var SimpleXMLElement $referenced_variable */
             foreach ($e->referencedVariable as $referenced_variable) {
                 $config['referencedVariable'][]['name'] = strtolower((string)$referenced_variable['name']);
             }
@@ -410,10 +403,10 @@ class FileFilter
         return self::loadFromArray($config, $base_dir, $inclusive);
     }
 
-    private static function isRegularExpression(string $string) : bool
+    private static function isRegularExpression(string $string): bool
     {
         set_error_handler(
-            function () : bool {
+            function (): bool {
                 return false;
             },
             E_WARNING

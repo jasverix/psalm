@@ -1,12 +1,13 @@
 <?php
+
 namespace Psalm\Type\Atomic;
 
+use Psalm\Type\Atomic;
+
 /**
- * Denotes the `empty` type, used to describe a type corresponding to no value whatsoever.
- * Empty arrays `[]` have the type `array<empty, empty>`.
- * @deprecated Will be replaced by TNever when in type context and TAssertionEmpty for assertion context in Psalm 5
+ * Represents any value that returns true to empty(). This is used for assertions
  */
-class TEmpty extends Scalar
+class TAssertionEmpty extends Atomic
 {
     public function __toString(): string
     {
@@ -25,9 +26,13 @@ class TEmpty extends Scalar
         ?string $namespace,
         array $aliased_classes,
         ?string $this_class,
-        int $php_major_version,
-        int $php_minor_version
+        int $analysis_php_version_id
     ): ?string {
         return null;
+    }
+
+    public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool
+    {
+        return false;
     }
 }

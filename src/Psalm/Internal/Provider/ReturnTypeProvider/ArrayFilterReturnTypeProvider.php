@@ -1,32 +1,52 @@
 <?php
+
 namespace Psalm\Internal\Provider\ReturnTypeProvider;
 
 use PhpParser;
 use Psalm\CodeLocation;
+use Psalm\Exception\ComplicatedExpressionException;
+use Psalm\Internal\Algebra;
+use Psalm\Internal\Algebra\FormulaGenerator;
 use Psalm\Internal\Analyzer\Statements\Expression\CallAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\ExpressionIdentifier;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Type\AssertionReconciler;
 use Psalm\Issue\InvalidReturnType;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\Event\FunctionReturnTypeProviderEvent;
+use Psalm\Plugin\EventHandler\FunctionReturnTypeProviderInterface;
 use Psalm\Type;
+use Psalm\Type\Atomic\TArray;
+use Psalm\Type\Atomic\TInt;
+use Psalm\Type\Atomic\TKeyedArray;
+use Psalm\Type\Atomic\TList;
+use Psalm\Type\Atomic\TString;
 use Psalm\Type\Reconciler;
+use Psalm\Type\Union;
 
+use function array_filter;
 use function array_map;
+use function array_slice;
 use function count;
 use function is_string;
+use function mt_rand;
+use function reset;
+use function spl_object_id;
 
-class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\FunctionReturnTypeProviderInterface
+/**
+ * @internal
+ */
+class ArrayFilterReturnTypeProvider implements FunctionReturnTypeProviderInterface
 {
     /**
      * @return array<lowercase-string>
      */
-    public static function getFunctionIds() : array
+    public static function getFunctionIds(): array
     {
         return ['array_filter'];
     }
 
-    public static function getFunctionReturnType(FunctionReturnTypeProviderEvent $event) : Type\Union
+    public static function getFunctionReturnType(FunctionReturnTypeProviderEvent $event): Union
     {
         $statements_source = $event->getStatementsSource();
         $call_args = $event->getCallArgs();
@@ -44,9 +64,9 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
             && ($first_arg_type = $statements_source->node_data->getType($array_arg))
             && $first_arg_type->hasType('array')
             && ($array_atomic_type = $first_arg_type->getAtomicTypes()['array'])
-            && ($array_atomic_type instanceof Type\Atomic\TArray
-                || $array_atomic_type instanceof Type\Atomic\TKeyedArray
-                || $array_atomic_type instanceof Type\Atomic\TList)
+            && ($array_atomic_type instanceof TArray
+                || $array_atomic_type instanceof TKeyedArray
+                || $array_atomic_type instanceof TList)
             ? $array_atomic_type
             : null;
 
@@ -54,10 +74,10 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
             return Type::getArray();
         }
 
-        if ($first_arg_array instanceof Type\Atomic\TArray) {
+        if ($first_arg_array instanceof TArray) {
             $inner_type = $first_arg_array->type_params[1];
             $key_type = clone $first_arg_array->type_params[0];
-        } elseif ($first_arg_array instanceof Type\Atomic\TList) {
+        } elseif ($first_arg_array instanceof TList) {
             $inner_type = $first_arg_array->type_param;
             $key_type = Type::getInt();
         } else {
@@ -69,12 +89,12 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
 
                 $first_arg_array = clone $first_arg_array;
 
-                $new_properties = \array_filter(
+                $new_properties = array_filter(
                     array_map(
                         static function ($keyed_type) use ($statements_source, $context) {
                             $prev_keyed_type = $keyed_type;
 
-                            $keyed_type = \Psalm\Internal\Type\AssertionReconciler::reconcile(
+                            $keyed_type = AssertionReconciler::reconcile(
                                 '!falsy',
                                 clone $keyed_type,
                                 '',
@@ -92,7 +112,7 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                         $first_arg_array->properties
                     ),
                     static function ($keyed_type) {
-                        return !$keyed_type->isEmpty();
+                        return !$keyed_type->isNever();
                     }
                 );
 
@@ -105,12 +125,12 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                 $first_arg_array->is_list = $first_arg_array->is_list && $had_one;
                 $first_arg_array->sealed = false;
 
-                return new Type\Union([$first_arg_array]);
+                return new Union([$first_arg_array]);
             }
         }
 
         if (!isset($call_args[1])) {
-            $inner_type = \Psalm\Internal\Type\AssertionReconciler::reconcile(
+            $inner_type = AssertionReconciler::reconcile(
                 '!falsy',
                 clone $inner_type,
                 '',
@@ -121,24 +141,24 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                 $statements_source->getSuppressedIssues()
             );
 
-            if ($first_arg_array instanceof Type\Atomic\TKeyedArray
+            if ($first_arg_array instanceof TKeyedArray
                 && $first_arg_array->is_list
                 && $key_type->isSingleIntLiteral()
                 && $key_type->getSingleIntLiteral()->value === 0
             ) {
-                return new Type\Union([
-                    new Type\Atomic\TList(
+                return new Union([
+                    new TList(
                         $inner_type
                     ),
                 ]);
             }
 
             if ($key_type->getLiteralStrings()) {
-                $key_type->addType(new Type\Atomic\TString);
+                $key_type->addType(new TString);
             }
 
             if ($key_type->getLiteralInts()) {
-                $key_type->addType(new Type\Atomic\TInt);
+                $key_type->addType(new TInt);
             }
 
             /** @psalm-suppress TypeDoesNotContainType can be empty after removing above */
@@ -146,8 +166,8 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                 return Type::getEmptyArray();
             }
 
-            return new Type\Union([
-                new Type\Atomic\TArray([
+            return new Union([
+                new TArray([
                     $key_type,
                     $inner_type,
                 ]),
@@ -169,13 +189,15 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                 if ($array_arg && $mapping_function_ids) {
                     $assertions = [];
 
+                    $fake_var_discriminator = mt_rand();
                     ArrayMapReturnTypeProvider::getReturnTypeFromMappingIds(
                         $statements_source,
                         $mapping_function_ids,
                         $context,
                         $function_call_arg,
-                        \array_slice($call_args, 0, 1),
-                        $assertions
+                        array_slice($call_args, 0, 1),
+                        $assertions,
+                        $fake_var_discriminator
                     );
 
                     $array_var_id = ExpressionIdentifier::getArrayVarId(
@@ -184,10 +206,13 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                         $statements_source
                     );
 
-                    if (isset($assertions[$array_var_id . '[$__fake_offset_var__]'])) {
+                    if (isset($assertions[$array_var_id . "[\$__fake_{$fake_var_discriminator}_offset_var__]"])) {
                         $changed_var_ids = [];
 
-                        $assertions = ['$inner_type' => $assertions[$array_var_id . '[$__fake_offset_var__]']];
+                        $assertions = [
+                            '$inner_type' =>
+                                $assertions["{$array_var_id}[\$__fake_{$fake_var_discriminator}_offset_var__]"],
+                        ];
 
                         $reconciled_types = Reconciler::reconcileKeyedTypes(
                             $assertions,
@@ -205,17 +230,19 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                             $inner_type = $reconciled_types['$inner_type'];
                         }
                     }
+
+                    ArrayMapReturnTypeProvider::cleanContext($context, $fake_var_discriminator);
                 }
             } elseif (($function_call_arg->value instanceof PhpParser\Node\Expr\Closure
                     || $function_call_arg->value instanceof PhpParser\Node\Expr\ArrowFunction)
                 && ($second_arg_type = $statements_source->node_data->getType($function_call_arg->value))
                 && ($closure_types = $second_arg_type->getClosureTypes())
             ) {
-                $closure_atomic_type = \reset($closure_types);
+                $closure_atomic_type = reset($closure_types);
                 $closure_return_type = $closure_atomic_type->return_type ?: Type::getMixed();
 
                 if ($closure_return_type->isVoid()) {
-                    IssueBuffer::accepts(
+                    IssueBuffer::maybeAdd(
                         new InvalidReturnType(
                             'No return type could be found in the closure passed to array_filter',
                             $code_location
@@ -241,10 +268,10 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                     ) {
                         $codebase = $statements_source->getCodebase();
 
-                        $cond_object_id = \spl_object_id($stmt->expr);
+                        $cond_object_id = spl_object_id($stmt->expr);
 
                         try {
-                            $filter_clauses = \Psalm\Internal\Algebra\FormulaGenerator::getFormula(
+                            $filter_clauses = FormulaGenerator::getFormula(
                                 $cond_object_id,
                                 $cond_object_id,
                                 $stmt->expr,
@@ -252,11 +279,11 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                                 $statements_source,
                                 $codebase
                             );
-                        } catch (\Psalm\Exception\ComplicatedExpressionException $e) {
+                        } catch (ComplicatedExpressionException $e) {
                             $filter_clauses = [];
                         }
 
-                        $assertions = \Psalm\Internal\Algebra::getTruthsFromFormula(
+                        $assertions = Algebra::getTruthsFromFormula(
                             $filter_clauses,
                             $cond_object_id
                         );
@@ -286,8 +313,8 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
                 }
             }
 
-            return new Type\Union([
-                new Type\Atomic\TArray([
+            return new Union([
+                new TArray([
                     $key_type,
                     $inner_type,
                 ]),
@@ -299,8 +326,8 @@ class ArrayFilterReturnTypeProvider implements \Psalm\Plugin\EventHandler\Functi
             return Type::getEmptyArray();
         }
 
-        return new Type\Union([
-            new Type\Atomic\TArray([
+        return new Union([
+            new TArray([
                 $key_type,
                 $inner_type,
             ]),

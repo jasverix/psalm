@@ -1,10 +1,14 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 class CallableTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -59,6 +63,175 @@ class CallableTest extends TestCase
                 'assertions' => [],
                 'error_levels' => [],
                 '7.4',
+            ],
+            'inferArgFromClassContext' => [
+                '<?php
+                    final class Calc
+                    {
+                        /**
+                         * @param Closure(int, int): int $_fn
+                         */
+                        public function __invoke(Closure $_fn): int
+                        {
+                            return $_fn(42, 42);
+                        }
+                    }
+
+                    $calc = new Calc();
+
+                    $a = $calc(fn($a, $b) => $a + $b);',
+                'assertions' => [
+                    '$a' => 'int',
+                ],
+                'error_levels' => [],
+                '7.4',
+            ],
+            'inferArgFromClassContextWithNamedArguments' => [
+                '<?php
+                    final class Calc
+                    {
+                        /**
+                         * @param Closure(int, int): int ...$_fn
+                         */
+                        public function __invoke(Closure ...$_fn): int
+                        {
+                            throw new RuntimeException("???");
+                        }
+                    }
+
+                    $calc = new Calc();
+
+                    $a = $calc(
+                        foo: fn($_a, $_b) => $_a + $_b,
+                        bar: fn($_a, $_b) => $_a + $_b,
+                    );',
+                'assertions' => [
+                    '$a' => 'int',
+                ],
+                'error_levels' => [],
+                '7.4',
+            ],
+            'inferArgFromClassContextInGenericContext' => [
+                '<?php
+                    /**
+                     * @template A
+                     */
+                    final class ArrayList
+                    {
+                        /**
+                         * @template B
+                         * @param Closure(A): B $ab
+                         * @return ArrayList<B>
+                         */
+                        public function map(Closure $ab): ArrayList
+                        {
+                            throw new RuntimeException("???");
+                        }
+                    }
+
+                    /**
+                     * @template T
+                     * @param ArrayList<T> $list
+                     * @return ArrayList<array{T}>
+                     */
+                    function asTupled(ArrayList $list): ArrayList
+                    {
+                        return $list->map(function ($_a) {
+                            return [$_a];
+                        });
+                    }
+                    /** @var ArrayList<int> $a */
+                    $a = new ArrayList();
+                    $b = asTupled($a);',
+                'assertions' => [
+                    '$b' => 'ArrayList<array{int}>',
+                ],
+            ],
+            'inferArgByPreviousFunctionArg' => [
+                '<?php
+                    /**
+                     * @template A
+                     * @template B
+                     *
+                     * @param iterable<array-key, A> $_collection
+                     * @param callable(A): B $_ab
+                     * @return list<B>
+                     */
+                    function map(iterable $_collection, callable $_ab) { return []; }
+
+                    /** @template T */
+                    final class Foo
+                    {
+                        /** @return Foo<int> */
+                        public function toInt() { throw new RuntimeException("???"); }
+                    }
+
+                    /** @var list<Foo<string>> */
+                    $items = [];
+
+                    $inferred = map($items, function ($i) {
+                        return $i->toInt();
+                    });',
+                'assertions' => [
+                    '$inferred' => 'list<Foo<int>>',
+                ],
+            ],
+            'inferTemplateForExplicitlyTypedArgByPreviousFunctionArg' => [
+                '<?php
+                    /**
+                     * @template A
+                     * @template B
+                     *
+                     * @param iterable<array-key, A> $_collection
+                     * @param callable(A): B $_ab
+                     * @return list<B>
+                     */
+                    function map(iterable $_collection, callable $_ab) { return []; }
+
+                    /** @template T */
+                    final class Foo
+                    {
+                        /** @return Foo<int> */
+                        public function toInt() { throw new RuntimeException("???"); }
+                    }
+
+                    /** @var list<Foo<string>> */
+                    $items = [];
+
+                    $inferred = map($items, function (Foo $i) {
+                        return $i->toInt();
+                    });',
+                'assertions' => [
+                    '$inferred' => 'list<Foo<int>>',
+                ],
+            ],
+            'doNotInferTemplateForExplicitlyTypedWithPhpdocArgByPreviousFunctionArg' => [
+                '<?php
+                    /**
+                     * @template A
+                     * @template B
+                     *
+                     * @param iterable<array-key, A> $_collection
+                     * @param callable(A): B $_ab
+                     * @return list<B>
+                     */
+                    function map(iterable $_collection, callable $_ab) { return []; }
+
+                    /** @template T */
+                    final class Foo { }
+
+                    /** @var list<Foo<string>> */
+                    $items = [];
+
+                    $inferred = map($items,
+                        /** @param Foo $i */
+                        function ($i) {
+                            return $i;
+                        }
+                    );',
+                'assertions' => [
+                    '$inferred' => 'list<Foo>',
+                ],
             ],
             'varReturnType' => [
                 '<?php
@@ -1217,8 +1390,56 @@ class CallableTest extends TestCase
                     function foo(string $c) : void {
                         takesCallableReturningString([$c, "bar"]);
                     }',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
+            'inexistantCallableinCallableString' => [
+                '<?php
+                    /**
+                     * @param callable-string $c
+                     */
+                    function c(string $c): void {
+                        $c();
+                    }
+
+                    c("hii");',
+                'error_message' => 'InvalidArgument',
+            ],
+            'mismatchParamTypeFromDocblock' => [
+                '<?php
+                    /**
+                     * @template A
+                     */
+                    final class ArrayList
+                    {
+                        /**
+                         * @template B
+                         * @param Closure(A): B $effect
+                         * @return ArrayList<B>
+                         */
+                        public function map(Closure $effect): ArrayList
+                        {
+                            throw new RuntimeException("???");
+                        }
+                    }
+
+                    /**
+                     * @template T
+                     * @template B
+                     *
+                     * @param ArrayList<T> $list
+                     * @return ArrayList<array{T}>
+                     */
+                    function genericContext(ArrayList $list): ArrayList
+                    {
+                        return $list->map(
+                            /** @param B $_a */
+                            function ($_a) {
+                                return [$_a];
+                            }
+                        );
+                    }',
+                'error_message' => 'InvalidArgument',
+            ]
         ];
     }
 }

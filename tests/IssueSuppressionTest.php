@@ -1,8 +1,13 @@
 <?php
+
 namespace Psalm\Tests;
 
 use Psalm\Config;
 use Psalm\Context;
+use Psalm\Exception\CodeException;
+use Psalm\IssueBuffer;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use function getcwd;
 
@@ -10,12 +15,18 @@ use const DIRECTORY_SEPARATOR;
 
 class IssueSuppressionTest extends TestCase
 {
-    use Traits\ValidCodeAnalysisTestTrait;
-    use Traits\InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+
+    public function setUp(): void
+    {
+        parent::setUp();
+        $this->project_analyzer->getCodebase()->find_unused_variables = true;
+    }
 
     public function testIssueSuppressedOnFunction(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('UnusedPsalmSuppress');
 
         $this->addFile(
@@ -34,12 +45,12 @@ class IssueSuppressionTest extends TestCase
                 }'
         );
 
-        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new \Psalm\Context());
+        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new Context());
     }
 
     public function testIssueSuppressedOnStatement(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('UnusedPsalmSuppress');
 
         $this->addFile(
@@ -49,12 +60,12 @@ class IssueSuppressionTest extends TestCase
                 echo strlen("hello");'
         );
 
-        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new \Psalm\Context());
+        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new Context());
     }
 
     public function testUnusedSuppressAllOnFunction(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('UnusedPsalmSuppress');
 
 
@@ -67,12 +78,12 @@ class IssueSuppressionTest extends TestCase
                 }'
         );
 
-        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new \Psalm\Context());
+        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new Context());
     }
 
     public function testUnusedSuppressAllOnStatement(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('UnusedPsalmSuppress');
 
         $this->addFile(
@@ -81,7 +92,7 @@ class IssueSuppressionTest extends TestCase
                 /** @psalm-suppress all */
                 print("foo");'
         );
-        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new \Psalm\Context());
+        $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', new Context());
     }
 
     public function testMissingThrowsDocblockSuppressed(): void
@@ -111,7 +122,7 @@ class IssueSuppressionTest extends TestCase
 
     public function testMissingThrowsDocblockSuppressedWithoutThrow(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('UnusedPsalmSuppress');
         Config::getInstance()->check_for_throws_docblock = true;
 
@@ -131,7 +142,7 @@ class IssueSuppressionTest extends TestCase
 
     public function testMissingThrowsDocblockSuppressedDuplicate(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('UnusedPsalmSuppress');
         Config::getInstance()->check_for_throws_docblock = true;
 
@@ -157,8 +168,6 @@ class IssueSuppressionTest extends TestCase
         $this->addFile(
             getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php',
             '<?php
-                /** @psalm-suppress UncaughtThrowInGlobalScope */
-                throw new Exception();
 
                 if (rand(0, 1)) {
                     /** @psalm-suppress UncaughtThrowInGlobalScope */
@@ -168,7 +177,10 @@ class IssueSuppressionTest extends TestCase
                 /** @psalm-suppress UncaughtThrowInGlobalScope */
                 if (rand(0, 1)) {
                     throw new Exception();
-                }'
+                }
+
+                /** @psalm-suppress UncaughtThrowInGlobalScope */
+                throw new Exception();'
         );
 
         $context = new Context();
@@ -178,7 +190,7 @@ class IssueSuppressionTest extends TestCase
 
     public function testUncaughtThrowInGlobalScopeSuppressedWithoutThrow(): void
     {
-        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectException(CodeException::class);
         $this->expectExceptionMessage('UnusedPsalmSuppress');
         Config::getInstance()->check_for_throws_in_global_scope = true;
 
@@ -192,6 +204,50 @@ class IssueSuppressionTest extends TestCase
         $context = new Context();
 
         $this->analyzeFile(getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php', $context);
+    }
+
+    public function testPossiblyUnusedPropertySuppressedOnClass(): void
+    {
+        $this->project_analyzer->getCodebase()->find_unused_code = "always";
+
+        $file_path = getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php';
+        $this->addFile(
+            $file_path,
+            '<?php
+                /** @psalm-suppress PossiblyUnusedProperty */
+                class Foo {
+                    public string $bar = "baz";
+                }
+
+                $_foo = new Foo();
+            '
+        );
+
+        $this->analyzeFile($file_path, new Context(), false);
+        $this->project_analyzer->consolidateAnalyzedData();
+        IssueBuffer::processUnusedSuppressions($this->project_analyzer->getCodebase()->file_provider);
+    }
+
+    public function testPossiblyUnusedPropertySuppressedOnProperty(): void
+    {
+        $this->project_analyzer->getCodebase()->find_unused_code = "always";
+
+        $file_path = getcwd() . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'somefile.php';
+        $this->addFile(
+            $file_path,
+            '<?php
+                class Foo {
+                    /** @psalm-suppress PossiblyUnusedProperty */
+                    public string $bar = "baz";
+                }
+
+                $_foo = new Foo();
+            '
+        );
+
+        $this->analyzeFile($file_path, new Context(), false);
+        $this->project_analyzer->consolidateAnalyzedData();
+        IssueBuffer::processUnusedSuppressions($this->project_analyzer->getCodebase()->file_provider);
     }
 
     /**
@@ -255,7 +311,7 @@ class IssueSuppressionTest extends TestCase
                          * @psalm-suppress TooManyArguments
                          * here
                          */
-                        strlen("a", "b");
+                        echo strlen("a", "b");
                     }',
             ],
             'suppressUndefinedFunction' => [
@@ -270,14 +326,14 @@ class IssueSuppressionTest extends TestCase
             'suppressAllStatementIssues' => [
                 '<?php
                     /** @psalm-suppress all */
-                    strlen(123, 456, 789);',
+                    echo strlen(123, 456, 789);',
             ],
             'suppressAllFunctionIssues' => [
                 '<?php
                     /** @psalm-suppress all */
                     function foo($a)
                     {
-                        strlen(123, 456, 789);
+                        echo strlen(123, 456, 789);
                     }',
             ],
             'possiblyNullSuppressedAtClassLevel' => [
@@ -312,7 +368,44 @@ class IssueSuppressionTest extends TestCase
                         }
                     }
                 ',
-            ]
+            ],
+            'missingPropertyTypeAtPropertyLevel' => [
+                '<?php
+                    class Foo {
+                        /**
+                         * @psalm-suppress MissingPropertyType
+                         */
+                        public $bar = "baz";
+                    }
+                ',
+            ],
+            'suppressUnusedSuppression' => [
+                '<?php
+                    class Foo {
+                        /**
+                         * @psalm-suppress UnusedPsalmSuppress, MissingPropertyType
+                         */
+                        public string $bar = "baz";
+
+                        /**
+                         * @psalm-suppress UnusedPsalmSuppress, MissingReturnType
+                         */
+                        public function foobar(): string
+                        {
+                            return "foobar";
+                        }
+                    }
+                ',
+            ],
+            'suppressUnevaluatedCode' => [
+                '<?php
+                    die();
+                    /**
+                     * @psalm-suppress UnevaluatedCode
+                     */
+                    break;
+                ',
+            ],
         ];
     }
 
@@ -349,6 +442,17 @@ class IssueSuppressionTest extends TestCase
                     /** @psalm-suppress MissingParamType */
                     function foo($s = Foo::BAR) : void {}',
                 'error_message' => 'UndefinedClass',
+            ],
+            'suppressUnusedSuppressionByItselfIsNotSuppressed' => [
+                '<?php
+                    class Foo {
+                        /**
+                         * @psalm-suppress UnusedPsalmSuppress
+                         */
+                        public string $bar = "baz";
+                    }
+                ',
+                'error_message' => 'UnusedPsalmSuppress',
             ],
         ];
     }

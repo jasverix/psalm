@@ -3,10 +3,17 @@
 namespace Psalm\Internal;
 
 use Composer\Autoload\ClassLoader;
+use Composer\InstalledVersions;
+use OutOfBoundsException;
 use Phar;
 use Psalm\Config;
-use Psalm\Internal\Composer;
+use Psalm\Config\Creator;
+use Psalm\Exception\ConfigException;
+use Psalm\Exception\ConfigNotFoundException;
+use Psalm\Internal\Analyzer\ProjectAnalyzer;
+use Psalm\Report;
 
+use function array_slice;
 use function assert;
 use function count;
 use function define;
@@ -41,6 +48,9 @@ use const PHP_EOL;
 use const STDERR;
 use const STDIN;
 
+/**
+ * @internal
+ */
 final class CliUtils
 {
     public static function requireAutoloaders(
@@ -52,7 +62,6 @@ final class CliUtils
 
         $psalm_dir = dirname(__DIR__, 3);
 
-        /** @psalm-suppress UndefinedConstant */
         $in_phar = Phar::running() || strpos(__NAMESPACE__, 'HumbugBox');
 
         if ($in_phar) {
@@ -141,16 +150,20 @@ final class CliUtils
             exit(1);
         }
 
-        define('PSALM_VERSION', \PackageVersions\Versions::getVersion('vimeo/psalm'));
-        define('PHP_PARSER_VERSION', \PackageVersions\Versions::getVersion('nikic/php-parser'));
+        $version = null;
+        try {
+            $version = InstalledVersions::getVersion('vimeo/psalm') ;
+        } catch (OutOfBoundsException $e) {
+        }
+
+        define('PSALM_VERSION', $version ?? 'UNKNOWN');
+        define('PHP_PARSER_VERSION', InstalledVersions::getVersion('nikic/php-parser'));
 
         return $first_autoloader;
     }
 
     /**
-     * @psalm-suppress MixedArrayAccess
      * @psalm-suppress MixedAssignment
-     * @psalm-suppress PossiblyUndefinedStringArrayOffset
      */
     public static function getVendorDir(string $current_dir): string
     {
@@ -183,7 +196,7 @@ final class CliUtils
     /**
      * @return list<string>
      */
-    public static function getArguments(): array
+    public static function getRawCliArguments(): array
     {
         global $argv;
 
@@ -191,6 +204,15 @@ final class CliUtils
             return [];
         }
 
+        return array_slice($argv, 1);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function getArguments(): array
+    {
+        $argv = self::getRawCliArguments();
         $filtered_input_paths = [];
 
         for ($i = 0, $iMax = count($argv); $i < $iMax; ++$i) {
@@ -224,90 +246,77 @@ final class CliUtils
      */
     public static function getPathsToCheck($f_paths): ?array
     {
-        global $argv;
-
         $paths_to_check = [];
 
         if ($f_paths) {
             $input_paths = is_array($f_paths) ? $f_paths : [$f_paths];
         } else {
-            $input_paths = $argv ?: null;
+            $input_paths = self::getRawCliArguments();
+            if (!$input_paths) {
+                return null;
+            }
         }
 
-        if ($input_paths) {
-            $filtered_input_paths = [];
+        $filtered_input_paths = [];
 
-            for ($i = 0, $iMax = count($input_paths); $i < $iMax; ++$i) {
-                /** @var string */
-                $input_path = $input_paths[$i];
+        for ($i = 0, $iMax = count($input_paths); $i < $iMax; ++$i) {
+            /** @var string */
+            $input_path = $input_paths[$i];
 
-                $real_input_path = realpath($input_path);
-                if ($real_input_path === realpath(dirname(__DIR__, 5) . DIRECTORY_SEPARATOR . 'bin'
-                        . DIRECTORY_SEPARATOR . 'psalm')
-                    || $real_input_path === realpath(dirname(__DIR__, 5) . DIRECTORY_SEPARATOR . 'bin'
-                        . DIRECTORY_SEPARATOR . 'psalter')
-                    || $real_input_path === realpath(dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'psalm')
-                    || $real_input_path === realpath(dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'psalter')
-                    || $real_input_path === realpath(Phar::running(false))
-                ) {
-                    continue;
+            if ($input_path[0] === '-' && strlen($input_path) === 2) {
+                if ($input_path[1] === 'c' || $input_path[1] === 'f') {
+                    ++$i;
                 }
-
-                if ($input_path[0] === '-' && strlen($input_path) === 2) {
-                    if ($input_path[1] === 'c' || $input_path[1] === 'f') {
-                        ++$i;
-                    }
-                    continue;
-                }
-
-                if ($input_path[0] === '-' && $input_path[2] === '=') {
-                    continue;
-                }
-
-                if (strpos($input_path, '--') === 0 && strlen($input_path) > 2) {
-                    if (substr($input_path, 2) === 'config') {
-                        ++$i;
-                    }
-                    continue;
-                }
-
-                $filtered_input_paths[] = $input_path;
+                continue;
             }
 
-            if ($filtered_input_paths === ['-']) {
-                $meta = stream_get_meta_data(STDIN);
-                stream_set_blocking(STDIN, false);
-                if ($stdin = fgets(STDIN)) {
-                    $filtered_input_paths = preg_split('/\s+/', trim($stdin));
-                }
-                $blocked = $meta['blocked'];
-                stream_set_blocking(STDIN, $blocked);
+            if ($input_path[0] === '-' && $input_path[2] === '=') {
+                continue;
             }
 
-            foreach ($filtered_input_paths as $path_to_check) {
-                if ($path_to_check[0] === '-') {
-                    fwrite(STDERR, 'Invalid usage, expecting psalm [options] [file...]' . PHP_EOL);
-                    exit(1);
+            if (strpos($input_path, '--') === 0 && strlen($input_path) > 2) {
+                if (substr($input_path, 2) === 'config') {
+                    ++$i;
                 }
-
-                if (!file_exists($path_to_check)) {
-                    fwrite(STDERR, 'Cannot locate ' . $path_to_check . PHP_EOL);
-                    exit(1);
-                }
-
-                $path_to_check = realpath($path_to_check);
-
-                if (!$path_to_check) {
-                    fwrite(STDERR, 'Error getting realpath for file' . PHP_EOL);
-                    exit(1);
-                }
-
-                $paths_to_check[] = $path_to_check;
+                continue;
             }
 
-            if (!$paths_to_check) {
-                $paths_to_check = null;
+            $filtered_input_paths[] = $input_path;
+        }
+
+        if ($filtered_input_paths === ['-']) {
+            $meta = stream_get_meta_data(STDIN);
+            stream_set_blocking(STDIN, false);
+            if ($stdin = fgets(STDIN)) {
+                $filtered_input_paths = preg_split('/\s+/', trim($stdin));
             }
+            $blocked = $meta['blocked'];
+            stream_set_blocking(STDIN, $blocked);
+        }
+
+        foreach ($filtered_input_paths as $path_to_check) {
+            if ($path_to_check[0] === '-') {
+                fwrite(STDERR, 'Invalid usage, expecting psalm [options] [file...]' . PHP_EOL);
+                exit(1);
+            }
+
+            if (!file_exists($path_to_check)) {
+                fwrite(STDERR, 'Cannot locate ' . $path_to_check . PHP_EOL);
+                exit(1);
+            }
+
+            $path_to_check = realpath($path_to_check);
+
+            if (!$path_to_check) {
+                fwrite(STDERR, 'Error getting realpath for file' . PHP_EOL);
+                exit(1);
+            }
+
+            $paths_to_check[] = $path_to_check;
+        }
+
+        if (!$paths_to_check) {
+            $paths_to_check = null;
         }
 
         return $paths_to_check;
@@ -341,6 +350,9 @@ Basic configuration:
 
     --no-diff
         Turns off Psalm’s diff mode, checks all files regardless of whether they’ve changed.
+
+    --php-version=PHP_VERSION
+        Explicitly set PHP version to analyse code against.
 
 Surfacing issues:
     --show-info[=BOOLEAN]
@@ -489,9 +501,9 @@ HELP;
             } else {
                 try {
                     $config = Config::getConfigForPath($current_dir, $current_dir);
-                } catch (\Psalm\Exception\ConfigNotFoundException $e) {
+                } catch (ConfigNotFoundException $e) {
                     if (!$create_if_non_existent) {
-                        if (in_array($output_format, [\Psalm\Report::TYPE_CONSOLE, \Psalm\Report::TYPE_PHP_STORM])) {
+                        if (in_array($output_format, [Report::TYPE_CONSOLE, Report::TYPE_PHP_STORM])) {
                             fwrite(
                                 STDERR,
                                 'Could not locate a config XML file in path ' . $current_dir
@@ -503,14 +515,14 @@ HELP;
                         throw $e;
                     }
 
-                    $config = \Psalm\Config\Creator::createBareConfig(
+                    $config = Creator::createBareConfig(
                         $current_dir,
                         null,
                         self::getVendorDir($current_dir)
                     );
                 }
             }
-        } catch (\Psalm\Exception\ConfigException $e) {
+        } catch (ConfigException $e) {
             fwrite(
                 STDERR,
                 $e->getMessage() . PHP_EOL
@@ -621,5 +633,37 @@ HELP;
         }
 
         return (int)$limit;
+    }
+
+    public static function initPhpVersion(array $options, Config $config, ProjectAnalyzer $project_analyzer): void
+    {
+        $source = null;
+
+        if (isset($options['php-version'])) {
+            if (!is_string($options['php-version'])) {
+                die('Expecting a version number in the format x.y' . PHP_EOL);
+            }
+            $version = $options['php-version'];
+            $source = 'cli';
+        } elseif ($version = $config->getPhpVersionFromConfig()) {
+            $source = 'config';
+        } elseif ($version = $config->getPHPVersionFromComposerJson()) {
+            $source = 'composer';
+        }
+
+        if ($version !== null && $source !== null) {
+            $project_analyzer->setPhpVersion($version, $source);
+        }
+    }
+
+    public static function runningInCI(): bool
+    {
+        return isset($_SERVER['TRAVIS'])
+            || isset($_SERVER['CIRCLECI'])
+            || isset($_SERVER['APPVEYOR'])
+            || isset($_SERVER['JENKINS_URL'])
+            || isset($_SERVER['SCRUTINIZER'])
+            || isset($_SERVER['GITLAB_CI'])
+            || isset($_SERVER['GITHUB_WORKFLOW']);
     }
 }

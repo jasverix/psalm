@@ -1,12 +1,16 @@
 <?php
+
 namespace Psalm\Tests;
 
 use Psalm\Context;
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
+use Psalm\Type;
 
 class ArrayAssignmentTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     public function testConditionalAssignment(): void
     {
@@ -19,8 +23,8 @@ class ArrayAssignmentTest extends TestCase
         );
 
         $context = new Context();
-        $context->vars_in_scope['$b'] = \Psalm\Type::getBool();
-        $context->vars_in_scope['$foo'] = \Psalm\Type::getArray();
+        $context->vars_in_scope['$b'] = Type::getBool();
+        $context->vars_in_scope['$foo'] = Type::getArray();
 
         $this->analyzeFile('somefile.php', $context);
 
@@ -155,7 +159,7 @@ class ArrayAssignmentTest extends TestCase
                     $foo = [];
                     $foo[][] = "hello";',
                 'assertions' => [
-                    '$foo' => 'non-empty-list<array<int, string>>',
+                    '$foo' => 'non-empty-list<non-empty-list<string>>',
                 ],
             ],
             'implicit3dIntArrayCreation' => [
@@ -163,7 +167,7 @@ class ArrayAssignmentTest extends TestCase
                     $foo = [];
                     $foo[][][] = "hello";',
                 'assertions' => [
-                    '$foo' => 'non-empty-list<list<array<int, string>>>',
+                    '$foo' => 'non-empty-list<list<non-empty-list<string>>>',
                 ],
             ],
             'implicit4dIntArrayCreation' => [
@@ -171,7 +175,7 @@ class ArrayAssignmentTest extends TestCase
                     $foo = [];
                     $foo[][][][] = "hello";',
                 'assertions' => [
-                    '$foo' => 'non-empty-list<list<list<array<int, string>>>>',
+                    '$foo' => 'non-empty-list<list<list<non-empty-list<string>>>>',
                 ],
             ],
             'implicitIndexedIntArrayCreation' => [
@@ -831,6 +835,7 @@ class ArrayAssignmentTest extends TestCase
             'keyedIntOffsetArrayValues' => [
                 '<?php
                     $a = ["hello", 5];
+                    /** @psalm-suppress RedundantFunctionCall */
                     $a_values = array_values($a);
                     $a_keys = array_keys($a);',
                 'assertions' => [
@@ -1003,7 +1008,7 @@ class ArrayAssignmentTest extends TestCase
                     $b = (array) null;',
                 'assertions' => [
                     '$a' => 'array{0?: int, 1?: string}',
-                    '$b' => 'array<empty, empty>',
+                    '$b' => 'array<never, never>',
                 ],
             ],
             'getOnCoercedArray' => [
@@ -1119,7 +1124,7 @@ class ArrayAssignmentTest extends TestCase
 
                     takesList($a);',
                 'assertions' => [
-                    '$a' => 'array<empty, empty>'
+                    '$a' => 'array<never, never>'
                 ],
             ],
             'listCreatedInSingleStatementUsedAsArray' => [
@@ -1533,7 +1538,7 @@ class ArrayAssignmentTest extends TestCase
 
                     $x = [...test(), "a" => "b"];
                 ',
-                'assertions' => ['$x' => 'non-empty-array<int|string, mixed>']
+                'assertions' => ['$x' => 'non-empty-array<int|string, mixed|string>']
             ],
             'ArrayOffsetNumericSupPHPINTMAX' => [
                 '<?php
@@ -1689,6 +1694,47 @@ class ArrayAssignmentTest extends TestCase
                 [],
                 '8.1'
             ],
+            'unpackArrayWithTwoTypesNotObjectLike' => [
+                '<?php
+                    function int(): int
+                    {
+                        return 0;
+                    }
+
+                    /**
+                     * @return list<positive-int>
+                     */
+                    function posiviteIntegers(): array
+                    {
+                        return [1];
+                    }
+
+                    $_a = [...posiviteIntegers(), int()];',
+                'assertions' => [
+                    '$_a' => 'non-empty-list<int>',
+                ],
+                [],
+                '8.1'
+            ],
+            'nullableDestructuring' => [
+                '<?php
+                    /**
+                     * @return array{"foo", "bar"}|null
+                     */
+                    function foobar(): ?array
+                    {
+                        return null;
+                    }
+
+                    [$_foo, $_bar] = foobar();
+                    ',
+                'assertions' => [
+                    '$_foo' => 'null|string',
+                    '$_bar' => 'null|string',
+                ],
+                [],
+                '8.1'
+            ],
         ];
     }
 
@@ -1841,7 +1887,7 @@ class ArrayAssignmentTest extends TestCase
                     $a[] = 2;
 
                     takesArray($a);',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
             'listUsedAsArrayWrongListType' => [
                 '<?php
@@ -1853,7 +1899,7 @@ class ArrayAssignmentTest extends TestCase
                     $a[] = 2;
 
                     takesArray($a);',
-                'error_message' => 'InvalidScalarArgument',
+                'error_message' => 'InvalidArgument',
             ],
             'nonEmptyAssignmentToListElementChangeType' => [
                 '<?php
@@ -2006,6 +2052,17 @@ class ArrayAssignmentTest extends TestCase
                         foo((array) $bar);
                     }',
                 'error_message' => 'RedundantCast',
+            ],
+            'arrayValuesOnList' => [
+                '<?php
+                    /**
+                     * @param list<int> $a
+                     * @return list<int>
+                     */
+                    function foo(array $a) : array {
+                        return array_values($a);
+                    }',
+                'error_message' => 'RedundantFunctionCall',
             ],
             'assignToListWithUpdatedForeachKey' => [
                 '<?php

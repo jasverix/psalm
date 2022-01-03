@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Psalm\Tests\Internal\Codebase;
@@ -10,7 +11,7 @@ use Psalm\Type\Atomic\TLiteralString;
 final class ClassConstantByWildcardResolverTest extends TestCase
 {
     /**
-     * @var \Psalm\Internal\Codebase\ClassConstantByWildcardResolver
+     * @var ClassConstantByWildcardResolver
      */
     private $resolver;
 

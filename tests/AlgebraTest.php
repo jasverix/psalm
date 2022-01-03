@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Tests;
 
 use PhpParser;
@@ -8,7 +9,10 @@ use Psalm\Internal\Algebra\FormulaGenerator;
 use Psalm\Internal\Analyzer\FileAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\Clause;
+use Psalm\Internal\Provider\NodeDataProvider;
 use Psalm\Internal\Provider\StatementsProvider;
+
+use function spl_object_id;
 
 class AlgebraTest extends TestCase
 {
@@ -81,17 +85,17 @@ class AlgebraTest extends TestCase
 
         $has_errors = false;
 
-        $dnf_stmt = StatementsProvider::parseStatements($dnf, '7.4', $has_errors)[0];
+        $dnf_stmt = StatementsProvider::parseStatements($dnf, 70400, $has_errors)[0];
 
         $this->assertInstanceOf(PhpParser\Node\Stmt\Expression::class, $dnf_stmt);
 
         $file_analyzer = new FileAnalyzer($this->project_analyzer, 'somefile.php', 'somefile.php');
         $file_analyzer->context = new Context();
-        $statements_analyzer = new StatementsAnalyzer($file_analyzer, new \Psalm\Internal\Provider\NodeDataProvider());
+        $statements_analyzer = new StatementsAnalyzer($file_analyzer, new NodeDataProvider());
 
         $dnf_clauses = FormulaGenerator::getFormula(
-            \spl_object_id($dnf_stmt->expr),
-            \spl_object_id($dnf_stmt->expr),
+            spl_object_id($dnf_stmt->expr),
+            spl_object_id($dnf_stmt->expr),
             $dnf_stmt->expr,
             null,
             $statements_analyzer
@@ -200,9 +204,9 @@ class AlgebraTest extends TestCase
         $this->assertSame(['$b' => ['!falsy']], $simplified_formula[0]->possibilities);
     }
 
-    public function testGroupImpossibilities() : void
+    public function testGroupImpossibilities(): void
     {
-        $clause1 = (new \Psalm\Internal\Clause(
+        $clause1 = (new Clause(
             [
                 '$a' => ['=array']
             ],
@@ -214,7 +218,7 @@ class AlgebraTest extends TestCase
             []
         ))->calculateNegation();
 
-        $clause2 = (new \Psalm\Internal\Clause(
+        $clause2 = (new Clause(
             [
                 '$b' => ['isset']
             ],

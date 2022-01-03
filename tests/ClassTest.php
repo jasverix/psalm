@@ -1,17 +1,18 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use function class_exists;
 
 class ClassTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
-    /**
-     * @return void
-     */
-    public function testExtendsMysqli()
+    public function testExtendsMysqli(): void
     {
         if (class_exists('mysqli') === false) {
             $this->markTestSkipped('Cannot run test, base class "mysqli" does not exist!');

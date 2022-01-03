@@ -1,4 +1,5 @@
 <?php
+
 namespace Psalm\Plugin\Hook;
 
 use PhpParser\Node\Stmt\ClassLike;
@@ -14,6 +15,7 @@ interface AfterClassLikeVisitInterface
      * @param  FileManipulation[] $file_replacements
      *
      * @return void
+     * @phpcsSuppress SlevomatCodingStandard.TypeHints.ReturnTypeHint
      */
     public static function afterClassLikeVisit(
         ClassLike $stmt,

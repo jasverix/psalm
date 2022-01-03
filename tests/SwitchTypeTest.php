@@ -1,12 +1,16 @@
 <?php
+
 namespace Psalm\Tests;
+
+use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
+use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
 use const DIRECTORY_SEPARATOR;
 
 class SwitchTypeTest extends TestCase
 {
-    use Traits\InvalidCodeAnalysisTestTrait;
-    use Traits\ValidCodeAnalysisTestTrait;
+    use InvalidCodeAnalysisTestTrait;
+    use ValidCodeAnalysisTestTrait;
 
     /**
      * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
@@ -34,7 +38,7 @@ class SwitchTypeTest extends TestCase
                         }
                     }
 
-                    $a = rand(0, 10) ? new A(): new B();
+                    $a = rand(0, 10) ? new A() : new B();
 
                     switch (get_class($a)) {
                         case A::class:
@@ -1071,6 +1075,18 @@ class SwitchTypeTest extends TestCase
                         throw new Exception();
                     }'
             ],
+            'switchWithLeftoverFunctionCallUsesTheFunction' => [
+                '<?php
+
+                    function bar (string $name): int {
+                        switch ($name) {
+                                case "a":
+                                case ucfirst("a"):
+                                    return 1;
+                        }
+                        return -1;
+                    }'
+            ],
         ];
     }
 
@@ -1142,7 +1158,7 @@ class SwitchTypeTest extends TestCase
                         }
                     }
 
-                    $a = rand(0, 10) ? new A(): new B();
+                    $a = rand(0, 10) ? new A() : new B();
 
                     switch (get_class($a)) {
                         case A::class:
@@ -1156,7 +1172,7 @@ class SwitchTypeTest extends TestCase
                     class A {}
                     class B {}
 
-                    $a = rand(0, 10) ? new A(): new B();
+                    $a = rand(0, 10) ? new A() : new B();
 
                     switch (get_class($a)) {
                         case C::class:
