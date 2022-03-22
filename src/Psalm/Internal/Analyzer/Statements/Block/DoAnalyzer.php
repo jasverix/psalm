@@ -17,7 +17,6 @@ use UnexpectedValueException;
 
 use function array_diff;
 use function array_filter;
-use function array_intersect_key;
 use function array_keys;
 use function array_merge;
 use function array_values;
@@ -129,6 +128,7 @@ class DoAnalyzer
                     $negated_while_types,
                     [],
                     $inner_loop_context->vars_in_scope,
+                    $inner_loop_context->references_in_scope,
                     $changed_var_ids,
                     [],
                     $statements_analyzer,
@@ -159,11 +159,6 @@ class DoAnalyzer
         $context->vars_possibly_in_scope = array_merge(
             $context->vars_possibly_in_scope,
             $do_context->vars_possibly_in_scope
-        );
-
-        $context->referenced_var_ids = array_intersect_key(
-            $do_context->referenced_var_ids,
-            $context->referenced_var_ids
         );
 
         if ($context->collect_exceptions) {

@@ -20,6 +20,7 @@ use Psalm\Internal\Type\AssertionReconciler;
 use Psalm\Node\Expr\VirtualBooleanNot;
 use Psalm\Node\Stmt\VirtualExpression;
 use Psalm\Node\Stmt\VirtualIf;
+use Psalm\Storage\Assertion\Truthy;
 use Psalm\Type;
 use Psalm\Type\Reconciler;
 
@@ -63,6 +64,8 @@ class OrAnalyzer
 
         $post_leaving_if_context = null;
 
+        // we cap this at max depth of 4 to prevent quadratic behaviour
+        // when analysing <expr> || <expr> || <expr> || <expr> || <expr>
         if (!$stmt->left instanceof PhpParser\Node\Expr\BinaryOp\BooleanOr
             || !$stmt->left->left instanceof PhpParser\Node\Expr\BinaryOp\BooleanOr
             || !$stmt->left->left->left instanceof PhpParser\Node\Expr\BinaryOp\BooleanOr
@@ -91,20 +94,23 @@ class OrAnalyzer
                 return false;
             }
         } else {
-            $pre_referenced_var_ids = $context->referenced_var_ids;
-            $context->referenced_var_ids = [];
+            $pre_referenced_var_ids = $context->cond_referenced_var_ids;
+            $context->cond_referenced_var_ids = [];
 
             $pre_assigned_var_ids = $context->assigned_var_ids;
 
             $post_leaving_if_context = clone $context;
 
             $left_context = clone $context;
-            $left_context->parent_context = $context;
-            $left_context->if_context = null;
+            $left_context->if_body_context = null;
             $left_context->assigned_var_ids = [];
 
             if (ExpressionAnalyzer::analyze($statements_analyzer, $stmt->left, $left_context) === false) {
                 return false;
+            }
+
+            foreach ($left_context->parent_remove_vars as $var_id => $_) {
+                $context->removeVarFromConflictingClauses($var_id);
             }
 
             IfConditionalAnalyzer::handleParadoxicalCondition($statements_analyzer, $stmt->left);
@@ -123,8 +129,8 @@ class OrAnalyzer
                 }
             }
 
-            $left_referenced_var_ids = $left_context->referenced_var_ids;
-            $left_context->referenced_var_ids = array_merge($pre_referenced_var_ids, $left_referenced_var_ids);
+            $left_referenced_var_ids = $left_context->cond_referenced_var_ids;
+            $left_context->cond_referenced_var_ids = array_merge($pre_referenced_var_ids, $left_referenced_var_ids);
 
             $left_assigned_var_ids = array_diff_key($left_context->assigned_var_ids, $pre_assigned_var_ids);
             $left_context->assigned_var_ids = array_merge($pre_assigned_var_ids, $left_context->assigned_var_ids);
@@ -167,9 +173,7 @@ class OrAnalyzer
             $negated_left_clauses = array_values(
                 array_filter(
                     $negated_left_clauses,
-                    function ($c) use ($reconciled_expression_clauses): bool {
-                        return !in_array($c->hash, $reconciled_expression_clauses);
-                    }
+                    fn($c): bool => !in_array($c->hash, $reconciled_expression_clauses)
                 )
             );
 
@@ -221,6 +225,7 @@ class OrAnalyzer
                 $negated_type_assertions,
                 $active_negated_type_assertions,
                 $right_context->vars_in_scope,
+                $right_context->references_in_scope,
                 $changed_var_ids,
                 $left_referenced_var_ids,
                 $statements_analyzer,
@@ -240,9 +245,7 @@ class OrAnalyzer
             $right_context->reconciled_expression_clauses = array_merge(
                 $context->reconciled_expression_clauses,
                 array_map(
-                    function ($c) {
-                        return $c->hash;
-                    },
+                    fn($c) => $c->hash,
                     $partitioned_clauses[1]
                 )
             );
@@ -252,18 +255,16 @@ class OrAnalyzer
             $context->reconciled_expression_clauses = array_merge(
                 $context->reconciled_expression_clauses,
                 array_map(
-                    function ($c) {
-                        return $c->hash;
-                    },
+                    fn($c) => $c->hash,
                     $partitioned_clauses[1]
                 )
             );
         }
 
-        $right_context->if_context = null;
+        $right_context->if_body_context = null;
 
-        $pre_referenced_var_ids = $right_context->referenced_var_ids;
-        $right_context->referenced_var_ids = [];
+        $pre_referenced_var_ids = $right_context->cond_referenced_var_ids;
+        $right_context->cond_referenced_var_ids = [];
 
         $pre_assigned_var_ids = $right_context->assigned_var_ids;
         $right_context->assigned_var_ids = [];
@@ -274,8 +275,8 @@ class OrAnalyzer
 
         IfConditionalAnalyzer::handleParadoxicalCondition($statements_analyzer, $stmt->right);
 
-        $right_referenced_var_ids = $right_context->referenced_var_ids;
-        $right_context->referenced_var_ids = array_merge($pre_referenced_var_ids, $right_referenced_var_ids);
+        $right_referenced_var_ids = $right_context->cond_referenced_var_ids;
+        $right_context->cond_referenced_var_ids = array_merge($pre_referenced_var_ids, $right_referenced_var_ids);
 
         $right_assigned_var_ids = $right_context->assigned_var_ids;
         $right_context->assigned_var_ids = array_merge($pre_assigned_var_ids, $right_assigned_var_ids);
@@ -316,6 +317,7 @@ class OrAnalyzer
                 $right_type_assertions,
                 $active_right_type_assertions,
                 $right_context->vars_in_scope,
+                $right_context->references_in_scope,
                 $right_changed_var_ids,
                 $right_referenced_var_ids,
                 $statements_analyzer,
@@ -341,7 +343,7 @@ class OrAnalyzer
 
             if ($var_id && isset($left_context->vars_in_scope[$var_id])) {
                 $left_inferred_reconciled = AssertionReconciler::reconcile(
-                    '!falsy',
+                    new Truthy(),
                     clone $left_context->vars_in_scope[$var_id],
                     '',
                     $statements_analyzer,
@@ -359,9 +361,9 @@ class OrAnalyzer
             $context->updateChecks($right_context);
         }
 
-        $context->referenced_var_ids = array_merge(
-            $right_context->referenced_var_ids,
-            $context->referenced_var_ids
+        $context->cond_referenced_var_ids = array_merge(
+            $right_context->cond_referenced_var_ids,
+            $context->cond_referenced_var_ids
         );
 
         $context->assigned_var_ids = array_merge(
@@ -369,18 +371,18 @@ class OrAnalyzer
             $right_context->assigned_var_ids
         );
 
-        if ($context->if_context) {
-            $if_context = $context->if_context;
+        if ($context->if_body_context) {
+            $if_body_context = $context->if_body_context;
 
             foreach ($right_context->vars_in_scope as $var_id => $type) {
-                if (isset($if_context->vars_in_scope[$var_id])) {
-                    $if_context->vars_in_scope[$var_id] = Type::combineUnionTypes(
+                if (isset($if_body_context->vars_in_scope[$var_id])) {
+                    $if_body_context->vars_in_scope[$var_id] = Type::combineUnionTypes(
                         $type,
-                        $if_context->vars_in_scope[$var_id],
+                        $if_body_context->vars_in_scope[$var_id],
                         $codebase
                     );
                 } elseif (isset($left_context->vars_in_scope[$var_id])) {
-                    $if_context->vars_in_scope[$var_id] = Type::combineUnionTypes(
+                    $if_body_context->vars_in_scope[$var_id] = Type::combineUnionTypes(
                         $type,
                         $left_context->vars_in_scope[$var_id],
                         $codebase
@@ -388,17 +390,17 @@ class OrAnalyzer
                 }
             }
 
-            $if_context->referenced_var_ids = array_merge(
-                $context->referenced_var_ids,
-                $if_context->referenced_var_ids
+            $if_body_context->cond_referenced_var_ids = array_merge(
+                $context->cond_referenced_var_ids,
+                $if_body_context->cond_referenced_var_ids
             );
 
-            $if_context->assigned_var_ids = array_merge(
+            $if_body_context->assigned_var_ids = array_merge(
                 $context->assigned_var_ids,
-                $if_context->assigned_var_ids
+                $if_body_context->assigned_var_ids
             );
 
-            $if_context->updateChecks($context);
+            $if_body_context->updateChecks($context);
         }
 
         $context->vars_possibly_in_scope = array_merge(

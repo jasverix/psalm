@@ -27,6 +27,7 @@ use Psalm\StatementsSource;
 use Psalm\Storage\ClassLikeStorage;
 use Psalm\Type;
 use Psalm\Type\Atomic;
+use Psalm\Type\Atomic\TClosure;
 use Psalm\Type\Atomic\TEmptyMixed;
 use Psalm\Type\Atomic\TFalse;
 use Psalm\Type\Atomic\TGenericObject;
@@ -76,7 +77,8 @@ class AtomicMethodCallAnalyzer extends CallAnalyzer
         ?Atomic $static_type,
         bool $is_intersection,
         ?string $lhs_var_id,
-        AtomicMethodCallAnalysisResult $result
+        AtomicMethodCallAnalysisResult $result,
+        ?TemplateResult $inferred_template_result = null
     ): void {
         if ($lhs_type_part instanceof TTemplateParam
             && !$lhs_type_part->as->isMixed()
@@ -188,6 +190,41 @@ class AtomicMethodCallAnalyzer extends CallAnalyzer
                     strtolower($fq_class_name) . '::',
                     $context->calling_method_id ?: $statements_analyzer->getFileName()
                 );
+            }
+
+            if ($stmt->isFirstClassCallable()) {
+                $return_type_candidate = null;
+                $method_name_type = $statements_analyzer->node_data->getType($stmt->name);
+                if ($method_name_type && $method_name_type->isSingleStringLiteral()) {
+                    $method_identifier = new MethodIdentifier(
+                        $fq_class_name,
+                        strtolower($method_name_type->getSingleStringLiteral()->value)
+                    );
+                    //the call to methodExists will register that the method was called from somewhere
+                    if ($codebase->methods->methodExists(
+                        $method_identifier,
+                        $context->calling_method_id,
+                        null,
+                        $statements_analyzer,
+                        $statements_analyzer->getFilePath(),
+                        true,
+                        $context->insideUse()
+                    )) {
+                        $method_storage = $codebase->methods->getStorage($method_identifier);
+
+                        $return_type_candidate = new Union([new TClosure(
+                            'Closure',
+                            $method_storage->params,
+                            $method_storage->return_type,
+                            $method_storage->pure
+                        )]);
+                    }
+                }
+
+                $statements_analyzer->node_data->setType($stmt, $return_type_candidate ?? Type::getClosure());
+
+
+                return;
             }
 
             ArgumentsAnalyzer::analyze(
@@ -356,7 +393,8 @@ class AtomicMethodCallAnalyzer extends CallAnalyzer
                     $context,
                     $codebase->config,
                     $all_intersection_return_type,
-                    $result
+                    $result,
+                    $lhs_type_part
                 );
 
                 if ($new_call_context) {
@@ -419,7 +457,8 @@ class AtomicMethodCallAnalyzer extends CallAnalyzer
                 $all_intersection_existent_method_ids,
                 $intersection_method_id,
                 $cased_method_id,
-                $result
+                $result,
+                $lhs_type_part
             );
 
             return;
@@ -438,7 +477,8 @@ class AtomicMethodCallAnalyzer extends CallAnalyzer
             $static_type,
             $lhs_var_id,
             $method_id,
-            $result
+            $result,
+            $inferred_template_result
         );
 
         $statements_analyzer->node_data = $old_node_data;

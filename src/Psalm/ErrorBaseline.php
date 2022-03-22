@@ -30,7 +30,7 @@ use function usort;
 use const LIBXML_NOBLANKS;
 use const PHP_VERSION;
 
-class ErrorBaseline
+final class ErrorBaseline
 {
     /**
      * @param array<string,array<string,array{o:int, s:array<int, string>}>> $existingIssues
@@ -48,9 +48,7 @@ class ErrorBaseline
                 /**
                  * @param array{o:int, s:array<int, string>} $existingIssue
                  */
-                function (int $carry, array $existingIssue): int {
-                    return $carry + $existingIssue['o'];
-                },
+                fn(int $carry, array $existingIssue): int => $carry + $existingIssue['o'],
                 0
             );
         }
@@ -260,9 +258,7 @@ class ErrorBaseline
                     ('php:' . PHP_VERSION),
                 ],
                 array_map(
-                    function (string $extension): string {
-                        return $extension . ':' . phpversion($extension);
-                    },
+                    fn(string $extension): string => $extension . ':' . phpversion($extension),
                     $extensions
                 )
             )));
@@ -282,12 +278,7 @@ class ErrorBaseline
 
                 foreach ($existingIssueType['s'] as $selection) {
                     $codeNode = $baselineDoc->createElement('code');
-
-                    /** @todo in major version release (e.g. Psalm 5) replace $selection with trim($selection)
-                     * This will be a minor BC break as baselines generated will then not be compatible with Psalm
-                     * versions from before PR https://github.com/vimeo/psalm/pull/6000
-                     */
-                    $codeNode->textContent = $selection;
+                    $codeNode->textContent = trim($selection);
                     $issueNode->appendChild($codeNode);
                 }
                 $fileNode->appendChild($issueNode);
@@ -304,21 +295,18 @@ class ErrorBaseline
             /**
              * @param string[] $matches
              */
-            function (array $matches): string {
-                return
-                    '<files' .
-                    "\n  " .
-                    $matches[1] .
-                    "\n" .
-                    '  php-version="' .
-                    "\n    " .
-                    str_replace('&#10;&#9;', "\n    ", $matches[2]).
-                    "\n" .
-                    '  "' .
-                    "\n" .
-                    $matches[3] .
-                    "\n";
-            },
+            fn(array $matches): string => '<files' .
+            "\n  " .
+            $matches[1] .
+            "\n" .
+            '  php-version="' .
+            "\n    " .
+            str_replace('&#10;&#9;', "\n    ", $matches[2]).
+            "\n" .
+            '  "' .
+            "\n" .
+            $matches[3] .
+            "\n",
             $baselineDoc->saveXML()
         );
 

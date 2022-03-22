@@ -7,7 +7,7 @@ use Psalm\Type\Atomic;
 use function array_map;
 use function implode;
 
-class TTypeAlias extends Atomic
+final class TTypeAlias extends Atomic
 {
     /**
      * @var array<string, TTypeAlias>|null
@@ -31,30 +31,13 @@ class TTypeAlias extends Atomic
         return 'type-alias(' . $this->declaring_fq_classlike_name . '::' . $this->alias_name . ')';
     }
 
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
         if ($this->extra_types) {
             return $this->getKey() . '&' . implode(
                 '&',
                 array_map(
-                    'strval',
-                    $this->extra_types
-                )
-            );
-        }
-
-        return $this->getKey();
-    }
-
-    public function getId(bool $nested = false): string
-    {
-        if ($this->extra_types) {
-            return $this->getKey() . '&' . implode(
-                '&',
-                array_map(
-                    function ($type) {
-                        return $type->getId(true);
-                    },
+                    fn($type) => $type->getId($exact, true),
                     $this->extra_types
                 )
             );
@@ -80,7 +63,7 @@ class TTypeAlias extends Atomic
         return false;
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return 'mixed';
     }

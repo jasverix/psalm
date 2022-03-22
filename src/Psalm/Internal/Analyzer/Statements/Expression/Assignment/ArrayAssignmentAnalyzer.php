@@ -4,6 +4,7 @@ namespace Psalm\Internal\Analyzer\Statements\Expression\Assignment;
 
 use InvalidArgumentException;
 use PhpParser;
+use PhpParser\Node\Expr\Variable;
 use Psalm\CodeLocation;
 use Psalm\Codebase;
 use Psalm\Context;
@@ -40,8 +41,8 @@ use function array_pop;
 use function array_reverse;
 use function array_shift;
 use function array_slice;
-use function array_unshift;
 use function count;
+use function end;
 use function implode;
 use function in_array;
 use function is_string;
@@ -143,7 +144,7 @@ class ArrayAssignmentAnalyzer
         $current_dim = $stmt->dim;
 
         // gets a variable id that *may* contain array keys
-        $root_var_id = ExpressionIdentifier::getArrayVarId(
+        $root_var_id = ExpressionIdentifier::getExtendedVarId(
             $root_array_expr,
             $statements_analyzer->getFQCLN(),
             $statements_analyzer
@@ -153,18 +154,15 @@ class ArrayAssignmentAnalyzer
 
         $offset_already_existed = false;
 
-        $child_stmt = null;
-
         self::analyzeNestedArrayAssignment(
             $statements_analyzer,
             $codebase,
             $context,
             $assign_value,
             $assignment_type,
-            array_reverse($child_stmts),
+            $child_stmts,
             $root_var_id,
             $parent_var_id,
-            $child_stmt,
             $root_type,
             $current_type,
             $current_dim,
@@ -214,7 +212,6 @@ class ArrayAssignmentAnalyzer
                 $current_type,
                 $root_type,
                 $offset_already_existed,
-                $child_stmt,
                 $parent_var_id
             );
         } else {
@@ -469,7 +466,6 @@ class ArrayAssignmentAnalyzer
         Union $value_type,
         Union $root_type,
         bool $offset_already_existed,
-        ?PhpParser\Node\Expr $child_stmt,
         ?string $parent_var_id
     ): Union {
         $templated_assignment = false;
@@ -523,7 +519,6 @@ class ArrayAssignmentAnalyzer
             }
 
             if ($offset_already_existed
-                && $child_stmt
                 && $parent_var_id
                 && ($parent_type = $context->vars_in_scope[$parent_var_id] ?? null)
             ) {
@@ -667,7 +662,8 @@ class ArrayAssignmentAnalyzer
     }
 
     /**
-     * @param  array<PhpParser\Node\Expr\ArrayDimFetch>  $child_stmts
+     * @param  non-empty-list<PhpParser\Node\Expr\ArrayDimFetch>  $child_stmts
+     * @param-out PhpParser\Node\Expr $child_stmt
      */
     private static function analyzeNestedArrayAssignment(
         StatementsAnalyzer $statements_analyzer,
@@ -678,27 +674,18 @@ class ArrayAssignmentAnalyzer
         array $child_stmts,
         ?string $root_var_id,
         ?string &$parent_var_id,
-        ?PhpParser\Node\Expr &$child_stmt,
         Union &$root_type,
         Union &$current_type,
         ?PhpParser\Node\Expr &$current_dim,
         bool &$offset_already_existed
     ): void {
-        $reversed_child_stmts = [];
         $var_id_additions = [];
-        $full_var_id = true;
 
-        $child_stmt = null;
+        $root_var = end($child_stmts)->var;
 
         // First go from the root element up, and go as far as we can to figure out what
         // array types there are
-        while ($child_stmts) {
-            $child_stmt = array_shift($child_stmts);
-
-            if (count($child_stmts)) {
-                array_unshift($reversed_child_stmts, $child_stmt);
-            }
-
+        foreach (array_reverse($child_stmts) as $i => $child_stmt) {
             $child_stmt_dim_type = null;
 
             $offset_type = null;
@@ -744,7 +731,7 @@ class ArrayAssignmentAnalyzer
                 $statements_analyzer->node_data->setType($child_stmt->var, $child_stmt_var_type);
             }
 
-            $array_var_id = $root_var_id . implode('', $var_id_additions);
+            $extended_var_id = $root_var_id . implode('', $var_id_additions);
 
             if ($parent_var_id && isset($context->vars_in_scope[$parent_var_id])) {
                 $child_stmt_var_type = clone $context->vars_in_scope[$parent_var_id];
@@ -753,16 +740,18 @@ class ArrayAssignmentAnalyzer
 
             $array_type = clone $child_stmt_var_type;
 
+            $is_last = $i === count($child_stmts) - 1;
+
             $child_stmt_type = ArrayFetchAnalyzer::getArrayAccessTypeGivenOffset(
                 $statements_analyzer,
                 $child_stmt,
                 $array_type,
                 $child_stmt_dim_type ?? Type::getInt(),
                 true,
-                $array_var_id,
+                $extended_var_id,
                 $context,
                 $assign_value,
-                $child_stmts ? null : $assignment_type
+                !$is_last ? null : $assignment_type
             );
 
             $statements_analyzer->node_data->setType(
@@ -784,7 +773,7 @@ class ArrayAssignmentAnalyzer
                 $context->possibly_assigned_var_ids[$rooted_parent_id] = true;
             }
 
-            if (!$child_stmts) {
+            if ($is_last) {
                 // we need this slight hack as the type we're putting it has to be
                 // different from the type we're getting out
                 if ($array_type->isSingle() && $array_type->hasClassStringMap()) {
@@ -800,7 +789,7 @@ class ArrayAssignmentAnalyzer
                         $child_stmt,
                         $array_type,
                         $assignment_type,
-                        ExpressionIdentifier::getArrayVarId(
+                        ExpressionIdentifier::getExtendedVarId(
                             $child_stmt->var,
                             $statements_analyzer->getFQCLN(),
                             $statements_analyzer
@@ -813,30 +802,48 @@ class ArrayAssignmentAnalyzer
             $current_type = $child_stmt_type;
             $current_dim = $child_stmt->dim;
 
-            $parent_var_id = $array_var_id;
+            $parent_var_id = $extended_var_id;
+        }
+
+        if ($statements_analyzer->data_flow_graph instanceof VariableUseGraph
+            && $root_var_id !== null
+            && isset($context->references_to_external_scope[$root_var_id])
+            && $root_var instanceof Variable && is_string($root_var->name)
+            && $root_var_id === '$' . $root_var->name
+        ) {
+            // Array is a reference to an external scope, mark it as used
+            $statements_analyzer->data_flow_graph->addPath(
+                DataFlowNode::getForAssignment(
+                    $root_var_id,
+                    new CodeLocation($statements_analyzer->getSource(), $root_var)
+                ),
+                new DataFlowNode('variable-use', 'variable use', null),
+                'variable-use'
+            );
         }
 
         if ($root_var_id
             && $full_var_id
-            && $child_stmt
             && ($child_stmt_var_type = $statements_analyzer->node_data->getType($child_stmt->var))
             && !$child_stmt_var_type->hasObjectType()
         ) {
-            $array_var_id = $root_var_id . implode('', $var_id_additions);
+            $extended_var_id = $root_var_id . implode('', $var_id_additions);
             $parent_var_id = $root_var_id . implode('', array_slice($var_id_additions, 0, -1));
 
-            if (isset($context->vars_in_scope[$array_var_id])
-                && !$context->vars_in_scope[$array_var_id]->possibly_undefined
+            if (isset($context->vars_in_scope[$extended_var_id])
+                && !$context->vars_in_scope[$extended_var_id]->possibly_undefined
             ) {
                 $offset_already_existed = true;
             }
 
-            $context->vars_in_scope[$array_var_id] = clone $assignment_type;
-            $context->possibly_assigned_var_ids[$array_var_id] = true;
+            $context->vars_in_scope[$extended_var_id] = clone $assignment_type;
+            $context->possibly_assigned_var_ids[$extended_var_id] = true;
         }
 
+        array_shift($child_stmts);
+
         // only update as many child stmts are we were able to process above
-        foreach ($reversed_child_stmts as $child_stmt) {
+        foreach ($child_stmts as $child_stmt) {
             $child_stmt_type = $statements_analyzer->node_data->getType($child_stmt);
 
             if (!$child_stmt_type) {
@@ -918,10 +925,10 @@ class ArrayAssignmentAnalyzer
             $parent_array_var_id = null;
 
             if ($root_var_id) {
-                $array_var_id = $root_var_id . implode('', $var_id_additions);
+                $extended_var_id = $root_var_id . implode('', $var_id_additions);
                 $parent_array_var_id = $root_var_id . implode('', array_slice($var_id_additions, 0, -1));
-                $context->vars_in_scope[$array_var_id] = clone $child_stmt_type;
-                $context->possibly_assigned_var_ids[$array_var_id] = true;
+                $context->vars_in_scope[$extended_var_id] = clone $child_stmt_type;
+                $context->possibly_assigned_var_ids[$extended_var_id] = true;
             }
 
             if ($statements_analyzer->data_flow_graph) {
@@ -992,7 +999,7 @@ class ArrayAssignmentAnalyzer
         if ($child_stmt->dim instanceof PhpParser\Node\Expr\PropertyFetch
             && $child_stmt->dim->name instanceof PhpParser\Node\Identifier
         ) {
-            $object_id = ExpressionIdentifier::getArrayVarId(
+            $object_id = ExpressionIdentifier::getExtendedVarId(
                 $child_stmt->dim->var,
                 $statements_analyzer->getFQCLN(),
                 $statements_analyzer

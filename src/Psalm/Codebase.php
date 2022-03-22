@@ -15,7 +15,6 @@ use LanguageServerProtocol\SignatureInformation;
 use LanguageServerProtocol\TextEdit;
 use PhpParser;
 use PhpParser\Node\Arg;
-use Psalm\CodeLocation;
 use Psalm\CodeLocation\Raw;
 use Psalm\Exception\UnanalyzedFileException;
 use Psalm\Exception\UnpopulatedClasslikeException;
@@ -93,7 +92,7 @@ use function substr_count;
 
 use const PHP_VERSION_ID;
 
-class Codebase
+final class Codebase
 {
     /**
      * @var Config
@@ -315,6 +314,7 @@ class Codebase
      */
     public $track_unused_suppressions = false;
 
+    /** @internal */
     public function __construct(
         Config $config,
         Providers $providers,
@@ -1967,9 +1967,7 @@ class Codebase
 
         $this->taint_flow_graph->addSource($source);
 
-        $expr_type->parent_nodes = [
-            $source->id => $source,
-        ];
+        $expr_type->parent_nodes[$source->id] = $source;
     }
 
     /**
@@ -1999,12 +1997,12 @@ class Codebase
 
     public function getMinorAnalysisPhpVersion(): int
     {
-        return self::transformPhpVersionId($this->analysis_php_version_id % 10000, 100);
+        return self::transformPhpVersionId($this->analysis_php_version_id % 10_000, 100);
     }
 
     public function getMajorAnalysisPhpVersion(): int
     {
-        return self::transformPhpVersionId($this->analysis_php_version_id, 10000);
+        return self::transformPhpVersionId($this->analysis_php_version_id, 10_000);
     }
 
     public static function transformPhpVersionId(int $php_version_id, int $div): int

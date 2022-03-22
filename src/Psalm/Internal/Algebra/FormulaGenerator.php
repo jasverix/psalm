@@ -12,11 +12,11 @@ use Psalm\Internal\Clause;
 use Psalm\Node\Expr\BinaryOp\VirtualBooleanAnd;
 use Psalm\Node\Expr\BinaryOp\VirtualBooleanOr;
 use Psalm\Node\Expr\VirtualBooleanNot;
+use Psalm\Storage\Assertion\Truthy;
 
 use function array_merge;
 use function count;
 use function spl_object_id;
-use function strlen;
 use function substr;
 
 /**
@@ -159,17 +159,17 @@ class FormulaGenerator
                         }
 
                         foreach ($anded_types as $orred_types) {
+                            $mapped_orred_types = [];
+                            foreach ($orred_types as $orred_type) {
+                                $mapped_orred_types[(string)$orred_type] = $orred_type;
+                            }
                             $clauses[] = new Clause(
-                                [$var => $orred_types],
+                                [$var => $mapped_orred_types],
                                 $conditional_object_id,
                                 spl_object_id($conditional->expr),
                                 false,
                                 true,
-                                $orred_types[0][0] === '='
-                                    || $orred_types[0][0] === '~'
-                                    || (strlen($orred_types[0]) > 1
-                                        && ($orred_types[0][1] === '='
-                                            || $orred_types[0][1] === '~')),
+                                $orred_types[0]->hasEquality(),
                                 $redefined ? [$var => true] : []
                             );
                         }
@@ -430,17 +430,17 @@ class FormulaGenerator
                 }
 
                 foreach ($anded_types as $orred_types) {
+                    $mapped_orred_types = [];
+                    foreach ($orred_types as $orred_type) {
+                        $mapped_orred_types[(string)$orred_type] = $orred_type;
+                    }
                     $clauses[] = new Clause(
-                        [$var => $orred_types],
+                        [$var => $mapped_orred_types],
                         $conditional_object_id,
                         $creating_object_id,
                         false,
                         true,
-                        $orred_types[0][0] === '='
-                            || $orred_types[0][0] === '~'
-                            || (strlen($orred_types[0]) > 1
-                                && ($orred_types[0][1] === '='
-                                    || $orred_types[0][1] === '~')),
+                        $orred_types[0]->hasEquality(),
                         $redefined ? [$var => true] : []
                     );
                 }
@@ -455,6 +455,12 @@ class FormulaGenerator
         $conditional_ref = '*' . $conditional->getAttribute('startFilePos')
             . ':' . $conditional->getAttribute('endFilePos');
 
-        return [new Clause([$conditional_ref => ['!falsy']], $conditional_object_id, $creating_object_id)];
+        return [
+            new Clause(
+                [$conditional_ref => ['truthy' => new Truthy()]],
+                $conditional_object_id,
+                $creating_object_id
+            )
+        ];
     }
 }

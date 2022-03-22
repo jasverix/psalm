@@ -60,7 +60,6 @@ use Psalm\Type\Atomic\TVoid;
 use Psalm\Type\Union;
 use UnexpectedValueException;
 
-use function array_intersect_key;
 use function array_keys;
 use function array_map;
 use function array_merge;
@@ -279,7 +278,7 @@ class ForeachAnalyzer
         }
 
         if ($stmt->keyVar instanceof PhpParser\Node\Expr\Variable && is_string($stmt->keyVar->name)) {
-            $key_type = $key_type ?? Type::getMixed();
+            $key_type ??= Type::getMixed();
 
             AssignmentAnalyzer::analyze(
                 $statements_analyzer,
@@ -292,10 +291,19 @@ class ForeachAnalyzer
             );
         }
 
-        $value_type = $value_type ?? Type::getMixed();
+        $value_type ??= Type::getMixed();
 
         if ($stmt->byRef) {
             $value_type->by_ref = true;
+        }
+
+        if ($stmt->byRef
+            && $stmt->valueVar instanceof PhpParser\Node\Expr\Variable
+            && is_string($stmt->valueVar->name)
+        ) {
+            // When assigning as reference, it removes any previous
+            // reference, so it's no longer from a previous confusing scope
+            unset($foreach_context->references_possibly_from_confusing_scope['$' . $stmt->valueVar->name]);
         }
 
         AssignmentAnalyzer::analyze(
@@ -310,6 +318,14 @@ class ForeachAnalyzer
                 ? ['$' . $stmt->valueVar->name => true]
                 : []
         );
+
+        if ($stmt->byRef
+            && $stmt->valueVar instanceof PhpParser\Node\Expr\Variable
+            && is_string($stmt->valueVar->name)
+        ) {
+            // TODO support references with destructuring
+            $foreach_context->references_to_external_scope['$' . $stmt->valueVar->name] = true;
+        }
 
         foreach ($var_comments as $var_comment) {
             if (!$var_comment->var_id || !$var_comment->type) {
@@ -359,11 +375,6 @@ class ForeachAnalyzer
         $context->vars_possibly_in_scope = array_merge(
             $foreach_context->vars_possibly_in_scope,
             $context->vars_possibly_in_scope
-        );
-
-        $context->referenced_var_ids = array_intersect_key(
-            $foreach_context->referenced_var_ids,
-            $context->referenced_var_ids
         );
 
         if ($context->collect_exceptions) {
@@ -458,7 +469,7 @@ class ForeachAnalyzer
                     }
                     $iterator_atomic_type = $iterator_atomic_type->getGenericArrayType();
                 } elseif ($iterator_atomic_type instanceof TList) {
-                    $list_var_id = ExpressionIdentifier::getArrayVarId(
+                    $list_var_id = ExpressionIdentifier::getExtendedVarId(
                         $expr,
                         $statements_analyzer->getFQCLN(),
                         $statements_analyzer
@@ -1000,9 +1011,7 @@ class ForeachAnalyzer
                     : array_values(
                         array_map(
                             /** @param array<string, Union> $arr */
-                            function (array $arr) use ($iterator_atomic_type): Union {
-                                return $arr[$iterator_atomic_type->value] ?? Type::getMixed();
-                            },
+                            fn(array $arr): Union => $arr[$iterator_atomic_type->value] ?? Type::getMixed(),
                             $generic_storage->template_types
                         )
                     );

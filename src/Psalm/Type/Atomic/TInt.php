@@ -7,11 +7,6 @@ namespace Psalm\Type\Atomic;
  */
 class TInt extends Scalar
 {
-    public function __toString(): string
-    {
-        return 'int';
-    }
-
     public function getKey(bool $include_extra = true): string
     {
         return 'int';
@@ -26,6 +21,6 @@ class TInt extends Scalar
         ?string $this_class,
         int $analysis_php_version_id
     ): ?string {
-        return $analysis_php_version_id >= 70000 ? 'int' : null;
+        return $analysis_php_version_id >= 7_00_00 ? 'int' : null;
     }
 }

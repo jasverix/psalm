@@ -5,11 +5,13 @@ namespace Psalm\Internal\Analyzer;
 use PhpParser;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure;
+use PhpParser\Node\Param;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Function_;
 use Psalm\CodeLocation;
 use Psalm\Codebase;
 use Psalm\Context;
+use Psalm\Exception\UnresolvableConstantException;
 use Psalm\FileManipulation;
 use Psalm\Internal\Analyzer\FunctionLike\ReturnTypeAnalyzer;
 use Psalm\Internal\Analyzer\FunctionLike\ReturnTypeCollector;
@@ -38,6 +40,7 @@ use Psalm\Issue\MissingParamType;
 use Psalm\Issue\MissingThrowsDocblock;
 use Psalm\Issue\ReferenceConstraintViolation;
 use Psalm\Issue\ReservedWord;
+use Psalm\Issue\UnresolvableConstant;
 use Psalm\Issue\UnusedClosureParam;
 use Psalm\Issue\UnusedParam;
 use Psalm\IssueBuffer;
@@ -63,6 +66,7 @@ use function array_key_exists;
 use function array_keys;
 use function array_merge;
 use function array_search;
+use function array_values;
 use function count;
 use function end;
 use function in_array;
@@ -351,6 +355,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
             $storage,
             $cased_method_id,
             $params,
+            array_values($this->function->params),
             $context,
             (bool) $template_types
         );
@@ -464,6 +469,12 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
             $this->track_mutations = true;
         }
 
+        if ($this->function instanceof ArrowFunction && (!$storage->return_type || $storage->return_type->isNever())) {
+            // ArrowFunction perform a return implicitly so if the return type is never, we have to suppress the error
+            // note: the never can only come from phpdoc. PHP will refuse short closures with never in signature
+            $statements_analyzer->addSuppressedIssues(['NoValue']);
+        }
+
         $statements_analyzer->analyze($function_stmts, $context, $global_context, true);
 
         if ($codebase->alter_code
@@ -503,7 +514,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
                 && !$inferred_return_type->isSingleIntLiteral()
                 && !$inferred_return_type->isSingleStringLiteral()
                 && !$inferred_return_type->isTrue()
-                && $inferred_return_type->getId() !== 'array<never, never>'
+                && !$inferred_return_type->isEmptyArray()
             ) {
                 $manipulator->makePure();
             }
@@ -763,7 +774,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
 
             foreach ($context->vars_in_scope as $var => $_) {
                 if (strpos($var, '$this->') !== 0 && $var !== '$this') {
-                    unset($context->vars_in_scope[$var]);
+                    $context->removePossibleReference($var);
                 }
             }
 
@@ -809,14 +820,14 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
             );
         }
 
-        foreach ($storage->attributes as $attribute) {
-            AttributeAnalyzer::analyze(
-                $this,
-                $attribute,
-                $storage->suppressed_issues + $this->getSuppressedIssues(),
-                $storage instanceof MethodStorage ? 4 : 2
-            );
-        }
+        AttributesAnalyzer::analyze(
+            $this,
+            $context,
+            $storage,
+            $this->function->attrGroups,
+            $storage instanceof MethodStorage ? 4 : 2,
+            $storage->suppressed_issues + $this->getSuppressedIssues()
+        );
 
         return null;
     }
@@ -844,10 +855,6 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
 
             if ($position === false) {
                 throw new UnexpectedValueException('$position should not be false here');
-            }
-
-            if ($storage->params[$position]->by_ref) {
-                continue;
             }
 
             if ($storage->params[$position]->promoted_property) {
@@ -961,13 +968,15 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
     }
 
     /**
-     * @param array<int, FunctionLikeParameter> $params
+     * @param list<FunctionLikeParameter> $params
+     * @param list<Param> $param_stmts
      */
     private function processParams(
         StatementsAnalyzer $statements_analyzer,
         FunctionLikeStorage $storage,
         ?string $cased_method_id,
         array $params,
+        array $param_stmts,
         Context $context,
         bool $has_template_types
     ): bool {
@@ -976,6 +985,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
         $project_analyzer = $statements_analyzer->getProjectAnalyzer();
 
         foreach ($params as $offset => $function_param) {
+            $function_param_id = '$' . $function_param->name;
             $signature_type = $function_param->signature_type;
             $signature_type_location = $function_param->signature_type_location;
 
@@ -1007,17 +1017,32 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
             if ($function_param->type) {
                 $param_type = clone $function_param->type;
 
-                $param_type = TypeExpander::expandUnion(
-                    $codebase,
-                    $param_type,
-                    $context->self,
-                    $context->self,
-                    $this->getParentFQCLN(),
-                    true,
-                    false,
-                    false,
-                    true
-                );
+                try {
+                    $param_type = TypeExpander::expandUnion(
+                        $codebase,
+                        $param_type,
+                        $context->self,
+                        $context->self,
+                        $this->getParentFQCLN(),
+                        true,
+                        false,
+                        false,
+                        true,
+                        false,
+                        true,
+                    );
+                } catch (UnresolvableConstantException $e) {
+                    if ($function_param->type_location !== null) {
+                        IssueBuffer::maybeAdd(
+                            new UnresolvableConstant(
+                                "Could not resolve constant {$e->class_name}::{$e->const_name}",
+                                $function_param->type_location
+                            ),
+                            $storage->suppressed_issues,
+                            true
+                        );
+                    }
+                }
 
                 if ($function_param->type_location) {
                     if ($param_type->check(
@@ -1064,7 +1089,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
                         && !$function_param->type->isBool())
                 ) {
                     $param_assignment = DataFlowNode::getForAssignment(
-                        '$' . $function_param->name,
+                        $function_param_id,
                         $function_param->location
                     );
 
@@ -1082,16 +1107,6 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
                         $statements_analyzer->data_flow_graph->addPath($type_source, $param_assignment, 'param');
                     }
 
-                    if ($function_param->by_ref
-                        && $codebase->find_unused_variables
-                    ) {
-                        $statements_analyzer->data_flow_graph->addPath(
-                            $param_assignment,
-                            new DataFlowNode('variable-use', 'variable use', null),
-                            'variable-use'
-                        );
-                    }
-
                     if ($storage->variadic) {
                         $this->param_nodes += [$param_assignment->id => $param_assignment];
                     }
@@ -1100,18 +1115,19 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
                 }
             }
 
-            $context->vars_in_scope['$' . $function_param->name] = $var_type;
-            $context->vars_possibly_in_scope['$' . $function_param->name] = true;
+            $context->vars_in_scope[$function_param_id] = $var_type;
+            $context->vars_possibly_in_scope[$function_param_id] = true;
 
             if ($function_param->by_ref) {
-                $context->vars_in_scope['$' . $function_param->name]->by_ref = true;
+                $context->vars_in_scope[$function_param_id]->by_ref = true;
+                $context->references_to_external_scope[$function_param_id] = true;
             }
 
             $parser_param = $this->function->getParams()[$offset] ?? null;
 
             if ($function_param->location) {
                 $statements_analyzer->registerVariable(
-                    '$' . $function_param->name,
+                    $function_param_id,
                     $function_param->location,
                     null
                 );
@@ -1147,7 +1163,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
 
                     IssueBuffer::maybeAdd(
                         new MismatchingDocblockParamType(
-                            'Parameter $' . $function_param->name . ' has wrong type \'' . $param_type .
+                            'Parameter ' . $function_param_id . ' has wrong type \'' . $param_type .
                                 '\', should be \'' . $signature_type . '\'',
                             $function_param->type_location
                         ),
@@ -1255,14 +1271,14 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
                 $context->hasVariable('$' . $function_param->name);
             }
 
-            foreach ($function_param->attributes as $attribute) {
-                AttributeAnalyzer::analyze(
-                    $this,
-                    $attribute,
-                    $storage->suppressed_issues,
-                    $function_param->promoted_property ? 8 : 32
-                );
-            }
+            AttributesAnalyzer::analyze(
+                $this,
+                $context,
+                $function_param,
+                $param_stmts[$offset]->attrGroups,
+                $function_param->promoted_property ? 40 : 32,
+                $storage->suppressed_issues + $this->getSuppressedIssues()
+            );
         }
 
         return $check_stmts;
@@ -1413,6 +1429,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
             $this,
             $return_type,
             $fq_class_name,
+            $fq_class_name,
             $return_type_location,
             [],
             $did_explicitly_return,
@@ -1442,7 +1459,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
         }
 
         $allow_native_type = !$docblock_only
-            && $codebase->analysis_php_version_id >= 70000
+            && $codebase->analysis_php_version_id >= 7_00_00
             && (
                 $codebase->allow_backwards_incompatible_changes
                 || $is_final
@@ -1811,7 +1828,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
                     $this_object_type = new TNamedObject($context->self);
                 }
 
-                $this_object_type->was_static = !$storage->final;
+                $this_object_type->is_static = !$storage->final;
 
                 if ($this->storage instanceof MethodStorage && $this->storage->if_this_is_type) {
                     $template_result = new TemplateResult($this->getTemplateTypeMap() ?? [], []);

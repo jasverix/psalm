@@ -256,7 +256,7 @@ return [
         'client_info' => 'string',
         'client_version' => 'int',
         'connect_errno' => 'int',
-        'connect_error' => 'string',
+        'connect_error' => '?string',
         'errno' => 'int',
         'error' => 'string',
         'error_list' => 'array',
@@ -366,11 +366,11 @@ return [
     ],
     'pdoexception' => [
         'errorinfo' => 'array',
-        'code' => 'string',
+        'code' => 'int|string',
     ],
     'domnode' => [
         'nodeName' => 'string',
-        'nodeValue' => 'string',
+        'nodeValue' => 'string|null',
         'nodeType' => 'int',
         'parentNode' => 'DOMNode|null',
         'childNodes' => 'DomNodeList<DomNode>',

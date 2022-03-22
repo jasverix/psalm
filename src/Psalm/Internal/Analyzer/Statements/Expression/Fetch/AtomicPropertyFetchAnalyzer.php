@@ -49,6 +49,7 @@ use Psalm\Type\Atomic;
 use Psalm\Type\Atomic\TEnumCase;
 use Psalm\Type\Atomic\TFalse;
 use Psalm\Type\Atomic\TGenericObject;
+use Psalm\Type\Atomic\TInt;
 use Psalm\Type\Atomic\TLiteralInt;
 use Psalm\Type\Atomic\TLiteralString;
 use Psalm\Type\Atomic\TMixed;
@@ -56,6 +57,7 @@ use Psalm\Type\Atomic\TNamedObject;
 use Psalm\Type\Atomic\TNull;
 use Psalm\Type\Atomic\TObject;
 use Psalm\Type\Atomic\TObjectWithProperties;
+use Psalm\Type\Atomic\TString;
 use Psalm\Type\Atomic\TTemplateParam;
 use Psalm\Type\Union;
 
@@ -184,35 +186,19 @@ class AtomicPropertyFetchAnalyzer
 
         $property_id = $fq_class_name . '::$' . $prop_name;
 
-        if ($class_storage->is_enum) {
-            if ($prop_name === 'value' && $class_storage->enum_type !== null && $class_storage->enum_cases) {
-                $case_values = [];
-
-                foreach ($class_storage->enum_cases as $enum_case) {
-                    if (is_string($enum_case->value)) {
-                        $case_values[] = new TLiteralString($enum_case->value);
-                    } elseif (is_int($enum_case->value)) {
-                        $case_values[] = new TLiteralInt($enum_case->value);
-                    } else {
-                        // this should never happen
-                        $case_values[] = new TMixed();
-                    }
-                }
-
-                // todo: this is suboptimal when we reference enum directly, e.g. Status::Open->value
+        if ($class_storage->is_enum || in_array('UnitEnum', $codebase->getParentInterfaces($fq_class_name))) {
+            if ($prop_name === 'value' && !$class_storage->is_enum) {
                 $statements_analyzer->node_data->setType(
                     $stmt,
-                    new Union($case_values)
+                    new Union([
+                        new TString(),
+                        new TInt()
+                    ])
                 );
+            } elseif ($prop_name === 'value' && $class_storage->enum_type !== null && $class_storage->enum_cases) {
+                self::handleEnumValue($statements_analyzer, $stmt, $class_storage);
             } elseif ($prop_name === 'name') {
-                if ($lhs_type_part instanceof TEnumCase) {
-                    $statements_analyzer->node_data->setType(
-                        $stmt,
-                        new Union([new TLiteralString($lhs_type_part->case_name)])
-                    );
-                } else {
-                    $statements_analyzer->node_data->setType($stmt, Type::getNonEmptyString());
-                }
+                self::handleEnumName($statements_analyzer, $stmt, $lhs_type_part);
             } else {
                 self::handleNonExistentProperty(
                     $statements_analyzer,
@@ -676,7 +662,9 @@ class AtomicPropertyFetchAnalyzer
              * If we have an explicit list of all allowed magic properties on the class, and we're
              * not in that list, fall through
              */
-            if (!$class_storage->sealed_properties && !$override_property_visibility) {
+            if (!($class_storage->sealed_properties || $codebase->config->seal_all_properties)
+                && !$override_property_visibility
+            ) {
                 return false;
             }
 
@@ -800,13 +788,13 @@ class AtomicPropertyFetchAnalyzer
         }
 
         if ($class_storage->specialize_instance) {
-            $var_id = ExpressionIdentifier::getArrayVarId(
+            $var_id = ExpressionIdentifier::getExtendedVarId(
                 $stmt->var,
                 null,
                 $statements_analyzer
             );
 
-            $var_property_id = ExpressionIdentifier::getArrayVarId(
+            $var_property_id = ExpressionIdentifier::getExtendedVarId(
                 $stmt,
                 null,
                 $statements_analyzer
@@ -861,7 +849,7 @@ class AtomicPropertyFetchAnalyzer
                 $type->parent_nodes = [$property_node->id => $property_node];
             }
         } else {
-            $var_property_id = ExpressionIdentifier::getArrayVarId(
+            $var_property_id = ExpressionIdentifier::getExtendedVarId(
                 $stmt,
                 null,
                 $statements_analyzer
@@ -904,6 +892,47 @@ class AtomicPropertyFetchAnalyzer
 
             $type->parent_nodes = [$localized_property_node->id => $localized_property_node];
         }
+    }
+
+    private static function handleEnumName(
+        StatementsAnalyzer $statements_analyzer,
+        PropertyFetch $stmt,
+        Atomic $lhs_type_part
+    ): void {
+        if ($lhs_type_part instanceof TEnumCase) {
+            $statements_analyzer->node_data->setType(
+                $stmt,
+                new Union([new TLiteralString($lhs_type_part->case_name)])
+            );
+        } else {
+            $statements_analyzer->node_data->setType($stmt, Type::getNonEmptyString());
+        }
+    }
+
+    private static function handleEnumValue(
+        StatementsAnalyzer $statements_analyzer,
+        PropertyFetch $stmt,
+        ClassLikeStorage $class_storage
+    ): void {
+        $case_values = [];
+
+        foreach ($class_storage->enum_cases as $enum_case) {
+            if (is_string($enum_case->value)) {
+                $case_values[] = new TLiteralString($enum_case->value);
+            } elseif (is_int($enum_case->value)) {
+                $case_values[] = new TLiteralInt($enum_case->value);
+            } else {
+                // this should never happen
+                $case_values[] = new TMixed();
+            }
+        }
+
+        // todo: this is suboptimal when we reference enum directly, e.g. Status::Open->value
+        /** @psalm-suppress ArgumentTypeCoercion */
+        $statements_analyzer->node_data->setType(
+            $stmt,
+            new Union($case_values)
+        );
     }
 
     private static function handleUndefinedProperty(
@@ -1005,7 +1034,11 @@ class AtomicPropertyFetchAnalyzer
                 }
             }
 
-            if (!$class_exists) {
+            if (!$class_exists &&
+                //interfaces can't have properties. Except when they do... In PHP Core, they can
+                !in_array($fq_class_name, ['UnitEnum', 'BackedEnum'], true) &&
+                !in_array('UnitEnum', $codebase->getParentInterfaces($fq_class_name))
+            ) {
                 if (IssueBuffer::accepts(
                     new NoInterfaceProperties(
                         'Interfaces cannot have properties',

@@ -93,6 +93,28 @@ class ArrayAnalyzer
             );
         }
 
+        // if this array looks like an object-like array, let's return that instead
+        if ($array_creation_info->can_create_objectlike
+            && $array_creation_info->property_types
+        ) {
+            $object_like = new TKeyedArray(
+                $array_creation_info->property_types,
+                $array_creation_info->class_strings
+            );
+            $object_like->sealed = true;
+            $object_like->is_list = $array_creation_info->all_list;
+
+            $stmt_type = new Union([$object_like]);
+
+            if ($array_creation_info->parent_taint_nodes) {
+                $stmt_type->parent_nodes = $array_creation_info->parent_taint_nodes;
+            }
+
+            $statements_analyzer->node_data->setType($stmt, $stmt_type);
+
+            return true;
+        }
+
         if ($array_creation_info->item_key_atomic_types) {
             $item_key_type = TypeCombiner::combine(
                 $array_creation_info->item_key_atomic_types,
@@ -117,27 +139,8 @@ class ArrayAnalyzer
             $item_value_type = null;
         }
 
-        // if this array looks like an object-like array, let's return that instead
-        if ($item_value_type
-            && $item_key_type
-            && ($item_key_type->hasString() || $item_key_type->hasInt())
-            && $array_creation_info->can_create_objectlike
-            && $array_creation_info->property_types
-        ) {
-            $object_like = new TKeyedArray(
-                $array_creation_info->property_types,
-                $array_creation_info->class_strings
-            );
-            $object_like->sealed = true;
-            $object_like->is_list = $array_creation_info->all_list;
-
-            $stmt_type = new Union([$object_like]);
-
-            if ($array_creation_info->parent_taint_nodes) {
-                $stmt_type->parent_nodes = $array_creation_info->parent_taint_nodes;
-            }
-
-            $statements_analyzer->node_data->setType($stmt, $stmt_type);
+        if ($item_key_type === null && $item_value_type === null) {
+            $statements_analyzer->node_data->setType($stmt, Type::getEmptyArray());
 
             return true;
         }
@@ -147,6 +150,7 @@ class ArrayAnalyzer
                 $array_type = new TList($item_value_type ?? Type::getMixed());
             } else {
                 $array_type = new TNonEmptyList($item_value_type ?? Type::getMixed());
+                /** @psalm-suppress InvalidPropertyAssignmentValue */
                 $array_type->count = count($array_creation_info->property_types);
             }
 
@@ -234,6 +238,7 @@ class ArrayAnalyzer
             $item_value_type ?? Type::getMixed(),
         ]);
 
+        /** @psalm-suppress InvalidPropertyAssignmentValue */
         $array_type->count = count($array_creation_info->property_types);
 
         $stmt_type = new Union([
@@ -459,19 +464,21 @@ class ArrayAnalyzer
         }
 
         if ($item->byRef) {
-            $var_id = ExpressionIdentifier::getArrayVarId(
+            $var_id = ExpressionIdentifier::getExtendedVarId(
                 $item->value,
                 $statements_analyzer->getFQCLN(),
                 $statements_analyzer
             );
 
             if ($var_id) {
-                $context->removeDescendents(
-                    $var_id,
-                    $context->vars_in_scope[$var_id] ?? null,
-                    null,
-                    $statements_analyzer
-                );
+                if (isset($context->vars_in_scope[$var_id])) {
+                    $context->removeDescendents(
+                        $var_id,
+                        $context->vars_in_scope[$var_id],
+                        null,
+                        $statements_analyzer
+                    );
+                }
 
                 $context->vars_in_scope[$var_id] = Type::getMixed();
             }
@@ -510,7 +517,7 @@ class ArrayAnalyzer
             if ($unpacked_atomic_type instanceof TKeyedArray) {
                 foreach ($unpacked_atomic_type->properties as $key => $property_value) {
                     if (is_string($key)) {
-                        if ($codebase->analysis_php_version_id <= 80000) {
+                        if ($codebase->analysis_php_version_id <= 8_00_00) {
                             IssueBuffer::maybeAdd(
                                 new DuplicateArrayKey(
                                     'String keys are not supported in unpacked arrays',
@@ -553,7 +560,7 @@ class ArrayAnalyzer
                     $array_creation_info->can_create_objectlike = false;
 
                     if ($unpacked_atomic_type->type_params[0]->hasString()) {
-                        if ($codebase->analysis_php_version_id <= 80000) {
+                        if ($codebase->analysis_php_version_id <= 8_00_00) {
                             IssueBuffer::maybeAdd(
                                 new DuplicateArrayKey(
                                     'String keys are not supported in unpacked arrays',

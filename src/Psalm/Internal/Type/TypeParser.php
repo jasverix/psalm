@@ -41,7 +41,7 @@ use Psalm\Type\Atomic\TIntMask;
 use Psalm\Type\Atomic\TIntMaskOf;
 use Psalm\Type\Atomic\TIntRange;
 use Psalm\Type\Atomic\TIterable;
-use Psalm\Type\Atomic\TKeyOfClassConstant;
+use Psalm\Type\Atomic\TKeyOfArray;
 use Psalm\Type\Atomic\TKeyedArray;
 use Psalm\Type\Atomic\TList;
 use Psalm\Type\Atomic\TLiteralClassString;
@@ -55,17 +55,20 @@ use Psalm\Type\Atomic\TNonEmptyList;
 use Psalm\Type\Atomic\TNull;
 use Psalm\Type\Atomic\TObject;
 use Psalm\Type\Atomic\TObjectWithProperties;
-use Psalm\Type\Atomic\TPositiveInt;
+use Psalm\Type\Atomic\TPropertiesOf;
 use Psalm\Type\Atomic\TTemplateIndexedAccess;
 use Psalm\Type\Atomic\TTemplateKeyOf;
 use Psalm\Type\Atomic\TTemplateParam;
 use Psalm\Type\Atomic\TTemplateParamClass;
+use Psalm\Type\Atomic\TTemplatePropertiesOf;
+use Psalm\Type\Atomic\TTemplateValueOf;
 use Psalm\Type\Atomic\TTypeAlias;
-use Psalm\Type\Atomic\TValueOfClassConstant;
+use Psalm\Type\Atomic\TValueOfArray;
 use Psalm\Type\TypeNode;
 use Psalm\Type\Union;
 
 use function array_key_exists;
+use function array_key_first;
 use function array_keys;
 use function array_map;
 use function array_merge;
@@ -496,9 +499,7 @@ class TypeParser
         $potential_values = array_unique($potential_values);
 
         return array_map(
-            function ($int) {
-                return new TLiteralInt($int);
-            },
+            fn($int) => new TLiteralInt($int),
             array_values($potential_values)
         );
     }
@@ -619,8 +620,11 @@ class TypeParser
             return new TNonEmptyList($generic_params[0]);
         }
 
-        if ($generic_type_value === 'class-string' || $generic_type_value === 'interface-string') {
-            $class_name = (string)$generic_params[0];
+        if ($generic_type_value === 'class-string'
+            || $generic_type_value === 'interface-string'
+            || $generic_type_value === 'enum-string'
+        ) {
+            $class_name = $generic_params[0]->getId(false);
 
             if (isset($template_type_map[$class_name])) {
                 $first_class = array_keys($template_type_map[$class_name])[0];
@@ -683,56 +687,90 @@ class TypeParser
             );
         }
 
-        if ($generic_type_value === 'key-of') {
-            $param_name = (string)$generic_params[0];
+        if (in_array($generic_type_value, TPropertiesOf::tokenNames())) {
+            if (count($generic_params) !== 1) {
+                throw new TypeParseTreeException($generic_type_value . ' requires exactly one parameter.');
+            }
 
-            if (isset($template_type_map[$param_name])) {
-                $defining_class = array_keys($template_type_map[$param_name])[0];
+            $param_name = (string) $generic_params[0];
 
-                return new TTemplateKeyOf(
+            if (isset($template_type_map[$param_name])
+                && ($defining_class = array_key_first($template_type_map[$param_name])) !== null
+            ) {
+                $template_param = $generic_params[0]->getSingleAtomic();
+                if (!$template_param instanceof TTemplateParam) {
+                    throw new TypeParseTreeException(
+                        $generic_type_value . '<' . $param_name . '> must be a TTemplateParam.'
+                    );
+                }
+
+                return new TTemplatePropertiesOf(
                     $param_name,
                     $defining_class,
-                    $template_type_map[$param_name][$defining_class]
+                    $template_param,
+                    TPropertiesOf::filterForTokenName($generic_type_value)
                 );
             }
 
             $param_union_types = array_values($generic_params[0]->getAtomicTypes());
 
             if (count($param_union_types) > 1) {
-                throw new TypeParseTreeException('Union types are not allowed in key-of type');
+                throw new TypeParseTreeException('Union types are not allowed in ' . $generic_type_value . ' param');
             }
 
-            if (!$param_union_types[0] instanceof TClassConstant) {
-                throw new TypeParseTreeException(
-                    'Untemplated key-of param ' . $param_name . ' should be a class constant'
-                );
+            if (!$param_union_types[0] instanceof TNamedObject) {
+                throw new TypeParseTreeException('Param should be a named object in ' . $generic_type_value);
             }
 
-            return new TKeyOfClassConstant(
-                $param_union_types[0]->fq_classlike_name,
-                $param_union_types[0]->const_name
+            return new TPropertiesOf(
+                $param_name,
+                $param_union_types[0],
+                TPropertiesOf::filterForTokenName($generic_type_value)
             );
         }
 
-        if ($generic_type_value === 'value-of') {
-            $param_name = (string)$generic_params[0];
+        if ($generic_type_value === 'key-of') {
+            $param_name = $generic_params[0]->getId(false);
 
-            $param_union_types = array_values($generic_params[0]->getAtomicTypes());
-
-            if (count($param_union_types) > 1) {
-                throw new TypeParseTreeException('Union types are not allowed in value-of type');
-            }
-
-            if (!$param_union_types[0] instanceof TClassConstant) {
-                throw new TypeParseTreeException(
-                    'Untemplated value-of param ' . $param_name . ' should be a class constant'
+            if (isset($template_type_map[$param_name])
+                && ($defining_class = array_key_first($template_type_map[$param_name])) !== null
+            ) {
+                return new TTemplateKeyOf(
+                    $param_name,
+                    $defining_class,
+                    $generic_params[0]
                 );
             }
 
-            return new TValueOfClassConstant(
-                $param_union_types[0]->fq_classlike_name,
-                $param_union_types[0]->const_name
-            );
+            if (!TKeyOfArray::isViableTemplateType($generic_params[0])) {
+                throw new TypeParseTreeException(
+                    'Untemplated key-of param ' . $param_name . ' should be an array'
+                );
+            }
+
+            return new TKeyOfArray($generic_params[0]);
+        }
+
+        if ($generic_type_value === 'value-of') {
+            $param_name = $generic_params[0]->getId(false);
+
+            if (isset($template_type_map[$param_name])
+                && ($defining_class = array_key_first($template_type_map[$param_name])) !== null
+            ) {
+                return new TTemplateValueOf(
+                    $param_name,
+                    $defining_class,
+                    $generic_params[0]
+                );
+            }
+
+            if (!TValueOfArray::isViableTemplateType($generic_params[0])) {
+                throw new TypeParseTreeException(
+                    'Untemplated value-of param ' . $param_name . ' should be an array'
+                );
+            }
+
+            return new TValueOfArray($generic_params[0]);
         }
 
         if ($generic_type_value === 'int-mask') {
@@ -803,8 +841,8 @@ class TypeParser
             $param_type = $param_union_types[0];
 
             if (!$param_type instanceof TClassConstant
-                && !$param_type instanceof TValueOfClassConstant
-                && !$param_type instanceof TKeyOfClassConstant
+                && !$param_type instanceof TValueOfArray
+                && !$param_type instanceof TKeyOfArray
             ) {
                 throw new TypeParseTreeException(
                     'Invalid reference passed to int-mask-of'
@@ -854,10 +892,6 @@ class TypeParser
 
             if ($min_bound === null && $max_bound === null) {
                 return new TInt();
-            }
-
-            if ($min_bound === 1 && $max_bound === null) {
-                return new TPositiveInt();
             }
 
             return new TIntRange($min_bound, $max_bound);
@@ -1086,7 +1120,7 @@ class TypeParser
             if ($intersect_static
                 && $first_type instanceof TNamedObject
             ) {
-                $first_type->was_static = true;
+                $first_type->is_static = true;
             }
 
             if ($keyed_intersection_types) {
@@ -1235,7 +1269,7 @@ class TypeParser
     /**
      * @param  array<string, array<string, Union>> $template_type_map
      * @param  array<string, TypeAlias> $type_aliases
-     * @return TCallableKeyedArray|TKeyedArray|TObjectWithProperties
+     * @return TCallableKeyedArray|TKeyedArray|TObjectWithProperties|TArray
      * @throws TypeParseTreeException
      */
     private static function getTypeFromKeyedArrayTree(
@@ -1314,7 +1348,7 @@ class TypeParser
         }
 
         if (!$properties) {
-            throw new TypeParseTreeException('No properties supplied for TKeyedArray');
+            return new TArray([Type::getNever(), Type::getNever()]);
         }
 
         if ($type === 'object') {

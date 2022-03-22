@@ -8,7 +8,6 @@ use Psalm\Internal\Analyzer\StatementsAnalyzer;
 use Psalm\Internal\Codebase\Methods;
 use Psalm\Internal\Type\Comparator\CallableTypeComparator;
 use Psalm\Internal\Type\Comparator\UnionTypeComparator;
-use Psalm\Internal\Type\TypeCombiner;
 use Psalm\Type;
 use Psalm\Type\Atomic;
 use Psalm\Type\Atomic\TArray;
@@ -26,10 +25,13 @@ use Psalm\Type\Atomic\TLiteralString;
 use Psalm\Type\Atomic\TNamedObject;
 use Psalm\Type\Atomic\TObject;
 use Psalm\Type\Atomic\TObjectWithProperties;
+use Psalm\Type\Atomic\TPropertiesOf;
 use Psalm\Type\Atomic\TTemplateIndexedAccess;
 use Psalm\Type\Atomic\TTemplateKeyOf;
 use Psalm\Type\Atomic\TTemplateParam;
 use Psalm\Type\Atomic\TTemplateParamClass;
+use Psalm\Type\Atomic\TTemplatePropertiesOf;
+use Psalm\Type\Atomic\TTemplateValueOf;
 use Psalm\Type\Union;
 use Throwable;
 
@@ -61,7 +63,7 @@ class TemplateStandinTypeReplacer
     public static function replace(
         Union $union_type,
         TemplateResult $template_result,
-        ?Codebase $codebase,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer,
         ?Union $input_type,
         ?int $input_arg_offset = null,
@@ -88,9 +90,10 @@ class TemplateStandinTypeReplacer
                 }
             }
 
-            /** @psalm-suppress RedundantCondition can be empty after removing above */
-            if ($new_input_type->getAtomicTypes()) {
+            if (!$new_input_type->isUnionEmpty()) {
                 $input_type = $new_input_type;
+            } else {
+                return $union_type;
             }
         }
 
@@ -158,7 +161,7 @@ class TemplateStandinTypeReplacer
         Atomic $atomic_type,
         string $key,
         TemplateResult $template_result,
-        ?Codebase $codebase,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer,
         ?Union $input_type,
         ?int $input_arg_offset,
@@ -214,7 +217,6 @@ class TemplateStandinTypeReplacer
                     $bound_equality_classlike,
                     $depth,
                     $was_single,
-                    $had_template
                 );
             }
         }
@@ -271,53 +273,85 @@ class TemplateStandinTypeReplacer
             return [$atomic_type];
         }
 
-        if ($atomic_type instanceof TTemplateKeyOf) {
-            if ($replace) {
-                $atomic_types = [];
-
-                $include_first = true;
-
-                if (isset($template_result->template_types[$atomic_type->param_name][$atomic_type->defining_class])) {
-                    $template_type
-                        = $template_result->template_types[$atomic_type->param_name][$atomic_type->defining_class];
-
-                    if ($template_type->isSingle()) {
-                        $template_type = $template_type->getSingleAtomic();
-
-                        if ($template_type instanceof TKeyedArray
-                            || $template_type instanceof TArray
-                            || $template_type instanceof TList
-                        ) {
-                            if ($template_type instanceof TKeyedArray) {
-                                $key_type = $template_type->getGenericKeyType();
-                            } elseif ($template_type instanceof TList) {
-                                $key_type = Type::getInt();
-                            } else {
-                                $key_type = clone $template_type->type_params[0];
-                            }
-
-                            $include_first = false;
-
-                            foreach ($key_type->getAtomicTypes() as $key_atomic_type) {
-                                $atomic_types[] = $key_atomic_type;
-                            }
-                        }
-                    }
-                }
-
-                if ($include_first) {
-                    $atomic_types[] = $atomic_type;
-                }
-
-                return $atomic_types;
+        if ($atomic_type instanceof TTemplateKeyOf
+            || $atomic_type instanceof TTemplateValueOf) {
+            if (!$replace) {
+                return [$atomic_type];
             }
 
+            $atomic_types = [];
+
+            $include_first = true;
+
+            if (isset($template_result->template_types[$atomic_type->param_name][$atomic_type->defining_class])) {
+                $template_type = $template_result->template_types[$atomic_type->param_name][$atomic_type->defining_class];
+
+                foreach ($template_type->getAtomicTypes() as $template_atomic) {
+                    if (!$template_atomic instanceof TKeyedArray
+                        && !$template_atomic instanceof TArray
+                        && !$template_atomic instanceof TList
+                    ) {
+                        return [$atomic_type];
+                    }
+
+                    if ($atomic_type instanceof TTemplateKeyOf) {
+                        if ($template_atomic instanceof TKeyedArray) {
+                            $template_atomic = $template_atomic->getGenericKeyType();
+                        } elseif ($template_atomic instanceof TList) {
+                            $template_atomic = Type::getInt();
+                        } else {
+                            $template_atomic = clone $template_atomic->type_params[0];
+                        }
+                    } else {
+                        if ($template_atomic instanceof TKeyedArray) {
+                            $template_atomic = $template_atomic->getGenericValueType();
+                        } elseif ($template_atomic instanceof TList) {
+                            $template_atomic = clone $template_atomic->type_param;
+                        } else {
+                            $template_atomic = clone $template_atomic->type_params[1];
+                        }
+                    }
+
+                    $include_first = false;
+
+                    foreach ($template_atomic->getAtomicTypes() as $key_atomic_type) {
+                        $atomic_types[] = $key_atomic_type;
+                    }
+                }
+            }
+
+            if ($include_first) {
+                $atomic_types[] = $atomic_type;
+            }
+
+            return $atomic_types;
+        }
+
+        if ($atomic_type instanceof TTemplatePropertiesOf) {
+            if (!$replace
+                || !isset($template_result->template_types[$atomic_type->param_name][$atomic_type->defining_class])
+            ) {
+                return [$atomic_type];
+            }
+
+            $template_type = $template_result->template_types[$atomic_type->param_name][$atomic_type->defining_class];
+
+            $classlike_type = $template_type->getSingleAtomic();
+            if (!$classlike_type instanceof TNamedObject) {
+                return [$atomic_type];
+            }
+
+            $atomic_type = new TPropertiesOf(
+                (string) $classlike_type,
+                clone $classlike_type,
+                $atomic_type->visibility_filter
+            );
             return [$atomic_type];
         }
 
         $matching_atomic_types = [];
 
-        if ($input_type && $codebase && !$input_type->hasMixed()) {
+        if ($input_type && !$input_type->hasMixed()) {
             $matching_atomic_types = self::findMatchingAtomicTypesForTemplate(
                 $atomic_type,
                 $key,
@@ -540,7 +574,7 @@ class TemplateStandinTypeReplacer
         ?string $calling_class,
         ?string $calling_function,
         TemplateResult $template_result,
-        ?Codebase $codebase,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer,
         bool $replace,
         bool $add_lower_bound,
@@ -611,15 +645,13 @@ class TemplateStandinTypeReplacer
                     $atomic_types[] = clone $as_atomic_type;
                 }
             } else {
-                if ($codebase) {
-                    $replacement_type = TypeExpander::expandUnion(
-                        $codebase,
-                        $replacement_type,
-                        $calling_class,
-                        $calling_class,
-                        null
-                    );
-                }
+                $replacement_type = TypeExpander::expandUnion(
+                    $codebase,
+                    $replacement_type,
+                    $calling_class,
+                    $calling_class,
+                    null
+                );
 
                 if ($depth < 10) {
                     $replacement_type = self::replace(
@@ -698,15 +730,13 @@ class TemplateStandinTypeReplacer
 
             $matching_input_keys = [];
 
-            if ($codebase) {
-                $atomic_type->as = TypeExpander::expandUnion(
-                    $codebase,
-                    $atomic_type->as,
-                    $calling_class,
-                    $calling_class,
-                    null
-                );
-            }
+            $atomic_type->as = TypeExpander::expandUnion(
+                $codebase,
+                $atomic_type->as,
+                $calling_class,
+                $calling_class,
+                null
+            );
 
             $atomic_type->as = self::replace(
                 $atomic_type->as,
@@ -727,7 +757,6 @@ class TemplateStandinTypeReplacer
                 && !$template_result->readonly
                 && (
                     $atomic_type->as->isMixed()
-                    || !$codebase
                     || UnionTypeComparator::canBeContainedBy(
                         $codebase,
                         $input_type,
@@ -821,15 +850,14 @@ class TemplateStandinTypeReplacer
         if ($add_lower_bound && $input_type && !$template_result->readonly) {
             $matching_input_keys = [];
 
-            if ($codebase
-                && UnionTypeComparator::canBeContainedBy(
-                    $codebase,
-                    $input_type,
-                    $replacement_type,
-                    false,
-                    false,
-                    $matching_input_keys
-                )
+            if (UnionTypeComparator::canBeContainedBy(
+                $codebase,
+                $input_type,
+                $replacement_type,
+                false,
+                false,
+                $matching_input_keys
+            )
             ) {
                 $generic_param = clone $input_type;
 
@@ -843,18 +871,22 @@ class TemplateStandinTypeReplacer
                     }
                 }
 
-                if (isset($template_result->upper_bounds[$param_name_key][$atomic_type->defining_class])) {
+                $upper_bound = $template_result->upper_bounds
+                    [$param_name_key]
+                    [$atomic_type->defining_class] ?? null;
+
+                if ($upper_bound) {
                     if (!UnionTypeComparator::isContainedBy(
                         $codebase,
-                        $template_result->upper_bounds[$param_name_key][$atomic_type->defining_class]->type,
+                        $upper_bound->type,
                         $generic_param
                     ) || !UnionTypeComparator::isContainedBy(
                         $codebase,
                         $generic_param,
-                        $template_result->upper_bounds[$param_name_key][$atomic_type->defining_class]->type
+                        $upper_bound->type
                     )) {
                         $intersection_type = Type::intersectUnionTypes(
-                            $template_result->upper_bounds[$param_name_key][$atomic_type->defining_class]->type,
+                            $upper_bound->type,
                             $generic_param,
                             $codebase
                         );
@@ -863,15 +895,12 @@ class TemplateStandinTypeReplacer
                     }
 
                     if ($intersection_type) {
-                        $template_result->upper_bounds[$param_name_key][$atomic_type->defining_class]->type
-                            = $intersection_type;
+                        $upper_bound->type = $intersection_type;
                     } else {
-                        $template_result->upper_bounds_unintersectable_types[]
-                            = $template_result->upper_bounds[$param_name_key][$atomic_type->defining_class]->type;
+                        $template_result->upper_bounds_unintersectable_types[] = $upper_bound->type;
                         $template_result->upper_bounds_unintersectable_types[] = $generic_param;
 
-                        $template_result->upper_bounds[$param_name_key][$atomic_type->defining_class]->type
-                            = Type::getMixed();
+                        $upper_bound->type = Type::getMixed();
                     }
                 } else {
                     $template_result->upper_bounds[$param_name_key][$atomic_type->defining_class] = new TemplateBound(
@@ -894,14 +923,13 @@ class TemplateStandinTypeReplacer
         ?string $calling_class,
         ?string $calling_function,
         TemplateResult $template_result,
-        ?Codebase $codebase,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer,
         bool $replace,
         bool $add_lower_bound,
         ?string $bound_equality_classlike,
         int $depth,
-        bool $was_single,
-        bool &$had_template
+        bool $was_single
     ): array {
         if ($atomic_type->defining_class === $calling_class) {
             return [$atomic_type];
@@ -1088,9 +1116,7 @@ class TemplateStandinTypeReplacer
 
         usort(
             $lower_bounds,
-            function (TemplateBound $bound_a, TemplateBound $bound_b) {
-                return $bound_b->appearance_depth <=> $bound_a->appearance_depth;
-            }
+            fn(TemplateBound $bound_a, TemplateBound $bound_b) => $bound_b->appearance_depth <=> $bound_a->appearance_depth
         );
 
         $current_depth = null;

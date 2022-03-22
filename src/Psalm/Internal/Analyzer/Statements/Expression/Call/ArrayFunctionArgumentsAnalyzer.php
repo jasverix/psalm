@@ -147,9 +147,7 @@ class ArrayFunctionArgumentsAnalyzer
 
         $unpacked_args = array_filter(
             $args,
-            function ($arg) {
-                return $arg->unpack;
-            }
+            fn($arg) => $arg->unpack
         );
 
         if ($method_id === 'array_push' && !$unpacked_args) {
@@ -541,7 +539,7 @@ class ArrayFunctionArgumentsAnalyzer
 
                     if ($array_atomic_type instanceof TNonEmptyArray) {
                         if (!$context->inside_loop && $array_atomic_type->count !== null) {
-                            if ($array_atomic_type->count === 0) {
+                            if ($array_atomic_type->count === 1) {
                                 $array_atomic_type = new TArray(
                                     [
                                         new Union([new TNever]),
@@ -558,7 +556,7 @@ class ArrayFunctionArgumentsAnalyzer
                         $array_type->addType($array_atomic_type);
                     } elseif ($array_atomic_type instanceof TNonEmptyList) {
                         if (!$context->inside_loop && $array_atomic_type->count !== null) {
-                            if ($array_atomic_type->count === 0) {
+                            if ($array_atomic_type->count === 1) {
                                 $array_atomic_type = new TArray(
                                     [
                                         new Union([new TNever]),

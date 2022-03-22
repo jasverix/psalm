@@ -20,7 +20,6 @@ use Psalm\IssueBuffer;
 use Psalm\StatementsSource;
 use Psalm\Storage\MethodStorage;
 use Psalm\Type\Atomic;
-use Psalm\Type\Atomic\TArray;
 use Psalm\Type\Atomic\TClassConstant;
 use Psalm\Type\Atomic\TGenericObject;
 use Psalm\Type\Atomic\TNamedObject;
@@ -34,7 +33,6 @@ use ReflectionProperty;
 use function array_keys;
 use function array_search;
 use function count;
-use function is_array;
 use function md5;
 use function strpos;
 use function strtolower;
@@ -128,16 +126,6 @@ class TypeChecker extends NodeVisitor
             $this->checkTemplateParam($type);
         } elseif ($type instanceof TResource) {
             $this->checkResource($type);
-        } elseif ($type instanceof TArray) {
-            if (count($type->type_params) > 2) {
-                IssueBuffer::maybeAdd(
-                    new TooManyTemplateParams(
-                        $type->getId(). ' has too many template params, expecting 2',
-                        $this->code_location
-                    ),
-                    $this->suppressed_issues
-                );
-            }
         }
 
         $type->checked = true;
@@ -324,7 +312,7 @@ class TypeChecker extends NodeVisitor
 
         $const_name = $atomic->const_name;
         if (strpos($const_name, '*') !== false) {
-            $expanded = TypeExpander::expandAtomic(
+            TypeExpander::expandAtomic(
                 $this->source->getCodebase(),
                 $atomic,
                 $fq_classlike_name,
@@ -334,7 +322,7 @@ class TypeChecker extends NodeVisitor
                 true
             );
 
-            $is_defined = is_array($expanded) && count($expanded) > 0;
+            $is_defined = true;
         } else {
             $class_constant_type = $this->source->getCodebase()->classlikes->getClassConstantType(
                 $fq_classlike_name,

@@ -2,12 +2,16 @@
 
 namespace Psalm\Internal;
 
-use Psalm\Internal\Algebra;
+use Psalm\Storage\Assertion;
+use Psalm\Type\Atomic\TClassConstant;
+use Psalm\Type\Atomic\TEnumCase;
+use Psalm\Type\Atomic\TLiteralFloat;
+use Psalm\Type\Atomic\TLiteralInt;
+use Psalm\Type\Atomic\TLiteralString;
 
 use function array_diff;
 use function array_keys;
 use function array_map;
-use function array_unique;
 use function array_values;
 use function count;
 use function implode;
@@ -15,9 +19,9 @@ use function json_encode;
 use function ksort;
 use function md5;
 use function reset;
-use function sort;
-use function strpos;
 use function substr;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * @internal
@@ -45,7 +49,7 @@ class Clause
      *
      * !$a || $b || $c !== null || is_string($d) || is_int($d)
      *
-     * @var array<string, non-empty-list<string>>
+     * @var array<string, non-empty-array<string, Assertion>>
      */
     public $possibilities;
 
@@ -61,7 +65,7 @@ class Clause
      *
      * $a && !$b && $c === null && !is_string($d) && !is_int($d)
      *
-     * @var array<string, non-empty-list<string>>|null
+     * @var array<string, non-empty-list<Assertion>>|null
      */
     public $impossibilities;
 
@@ -81,7 +85,7 @@ class Clause
     public $hash;
 
     /**
-     * @param array<string, non-empty-list<string>>  $possibilities
+     * @param array<string, non-empty-array<string, Assertion>>  $possibilities
      * @param array<string, bool> $redefined_vars
      */
     public function __construct(
@@ -93,6 +97,21 @@ class Clause
         bool $generated = false,
         array $redefined_vars = []
     ) {
+        if ($wedge || !$reconcilable) {
+            $this->hash = ($wedge ? 'w' : '') . $creating_object_id;
+        } else {
+            ksort($possibilities);
+
+            $possibility_strings = [];
+
+            foreach ($possibilities as $i => $_) {
+                ksort($possibilities[$i]);
+                $possibility_strings[$i] = array_keys($possibilities[$i]);
+            }
+
+            $this->hash = md5(json_encode($possibility_strings, JSON_THROW_ON_ERROR));
+        }
+
         $this->possibilities = $possibilities;
         $this->wedge = $wedge;
         $this->reconcilable = $reconcilable;
@@ -100,18 +119,6 @@ class Clause
         $this->redefined_vars = $redefined_vars;
         $this->creating_conditional_id = $creating_conditional_id;
         $this->creating_object_id = $creating_object_id;
-
-        if ($wedge || !$reconcilable) {
-            $this->hash = ($wedge ? 'w' : '') . $creating_object_id;
-        } else {
-            ksort($possibilities);
-
-            foreach ($possibilities as $i => $_) {
-                sort($possibilities[$i]);
-            }
-
-            $this->hash = md5((string) json_encode($possibilities));
-        }
     }
 
     public function contains(Clause $other_clause): bool
@@ -136,7 +143,7 @@ class Clause
     {
         $clause_strings = array_map(
             /**
-             * @param non-empty-list<string> $values
+             * @param non-empty-array<string, Assertion> $values
              */
             function (string $var_id, array $values): string {
                 if ($var_id[0] === '*') {
@@ -144,7 +151,8 @@ class Clause
                 }
 
                 $var_id_clauses = array_map(
-                    function (string $value) use ($var_id): string {
+                    function (Assertion $value) use ($var_id): string {
+                        $value = (string) $value;
                         if ($value === 'falsy') {
                             return '!' . $var_id;
                         }
@@ -177,7 +185,7 @@ class Clause
                     return '(' . implode(') || (', $var_id_clauses) . ')';
                 }
 
-                return $var_id_clauses[0];
+                return reset($var_id_clauses);
             },
             array_keys($this->possibilities),
             array_values($this->possibilities)
@@ -188,25 +196,6 @@ class Clause
         }
 
         return reset($clause_strings);
-    }
-
-    public function makeUnique(): self
-    {
-        $possibilities = $this->possibilities;
-
-        foreach ($possibilities as $var_id => $var_possibilities) {
-            $possibilities[$var_id] = array_values(array_unique($var_possibilities));
-        }
-
-        return new self(
-            $possibilities,
-            $this->creating_conditional_id,
-            $this->creating_object_id,
-            $this->wedge,
-            $this->reconcilable,
-            $this->generated,
-            $this->redefined_vars
-        );
     }
 
     public function removePossibilities(string $var_id): ?self
@@ -230,7 +219,7 @@ class Clause
     }
 
     /**
-     * @param non-empty-list<string> $clause_var_possibilities
+     * @param non-empty-array<string, Assertion> $clause_var_possibilities
      */
     public function addPossibilities(string $var_id, array $clause_var_possibilities): self
     {
@@ -260,12 +249,15 @@ class Clause
             $impossibility = [];
 
             foreach ($possibility as $type) {
-                if (($type[0] !== '=' && $type[0] !== '~'
-                        && (!isset($type[1]) || ($type[1] !== '=' && $type[1] !== '~')))
-                    || strpos($type, '(')
-                    || strpos($type, 'getclass-')
+                if (!$type->hasEquality()
+                    || (($inner_type = $type->getAtomicType())
+                        && ($inner_type instanceof TLiteralInt
+                            || $inner_type instanceof TLiteralFloat
+                            || $inner_type instanceof TLiteralString
+                            || $inner_type instanceof TClassConstant
+                            || $inner_type instanceof TEnumCase))
                 ) {
-                    $impossibility[] = Algebra::negateType($type);
+                    $impossibility[] = $type->getNegation();
                 }
             }
 

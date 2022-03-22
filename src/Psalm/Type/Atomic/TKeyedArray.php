@@ -11,7 +11,6 @@ use Psalm\Internal\Type\TypeCombiner;
 use Psalm\Type;
 use Psalm\Type\Atomic;
 use Psalm\Type\Atomic\TArray;
-use Psalm\Type\Atomic\TKeyedArray;
 use Psalm\Type\Atomic\TLiteralClassString;
 use Psalm\Type\Atomic\TLiteralInt;
 use Psalm\Type\Atomic\TLiteralString;
@@ -71,6 +70,7 @@ class TKeyedArray extends Atomic
      */
     public $is_list = false;
 
+    /** @var non-empty-lowercase-string */
     public const KEY = 'array';
 
     /**
@@ -85,12 +85,12 @@ class TKeyedArray extends Atomic
         $this->class_strings = $class_strings;
     }
 
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
         $property_strings = array_map(
-            function ($name, Union $type): string {
+            function ($name, Union $type) use ($exact): string {
                 if ($this->is_list && $this->sealed) {
-                    return (string) $type;
+                    return $type->getId($exact);
                 }
 
                 $class_string_suffix = '';
@@ -100,7 +100,8 @@ class TKeyedArray extends Atomic
 
                 $name = $this->escapeAndQuote($name);
 
-                return $name . $class_string_suffix . ($type->possibly_undefined ? '?' : '') . ': ' . $type;
+                return $name . $class_string_suffix . ($type->possibly_undefined ? '?' : '')
+                    . ': ' . $type->getId($exact);
             },
             array_keys($this->properties),
             $this->properties
@@ -110,44 +111,14 @@ class TKeyedArray extends Atomic
             sort($property_strings);
         }
 
-        /** @psalm-suppress MixedOperand */
-        return static::KEY . '{' . implode(', ', $property_strings) . '}';
-    }
-
-    public function getId(bool $nested = false): string
-    {
-        $property_strings = array_map(
-            function ($name, Union $type): string {
-                if ($this->is_list && $this->sealed) {
-                    return $type->getId();
-                }
-
-                $class_string_suffix = '';
-                if (isset($this->class_strings[$name])) {
-                    $class_string_suffix = '::class';
-                }
-
-                $name = $this->escapeAndQuote($name);
-
-                return $name . $class_string_suffix . ($type->possibly_undefined ? '?' : '') . ': ' . $type->getId();
-            },
-            array_keys($this->properties),
-            $this->properties
-        );
-
-        if (!$this->is_list) {
-            sort($property_strings);
-        }
-
-        /** @psalm-suppress MixedOperand */
         return static::KEY . '{' .
                 implode(', ', $property_strings) .
                 '}'
                 . ($this->previous_value_type
                     && (!$this->previous_value_type->isMixed()
                         || ($this->previous_key_type && !$this->previous_key_type->isArrayKey()))
-                    ? '<' . ($this->previous_key_type ? $this->previous_key_type->getId() . ', ' : '')
-                        . $this->previous_value_type->getId() . '>'
+                    ? '<' . ($this->previous_key_type ? $this->previous_key_type->getId($exact) . ', ' : '')
+                        . $this->previous_value_type->getId($exact) . '>'
                     : '');
     }
 
@@ -170,7 +141,6 @@ class TKeyedArray extends Atomic
             );
         }
 
-        /** @psalm-suppress MixedOperand */
         return static::KEY . '{' .
                 implode(
                     ', ',
@@ -324,7 +294,7 @@ class TKeyedArray extends Atomic
 
     public function replaceTemplateTypesWithStandins(
         TemplateResult $template_result,
-        ?Codebase $codebase = null,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer = null,
         ?Atomic $input_type = null,
         ?int $input_arg_offset = null,
@@ -409,7 +379,7 @@ class TKeyedArray extends Atomic
         return true;
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return $this->getKey();
     }
@@ -429,7 +399,7 @@ class TKeyedArray extends Atomic
      */
     private function escapeAndQuote($name)
     {
-        if (is_string($name) && preg_match('/[^a-zA-Z0-9_]/', $name)) {
+        if (is_string($name) && ($name === '' || preg_match('/[^a-zA-Z0-9_]/', $name))) {
             $name = '\'' . str_replace("\n", '\n', addslashes($name)) . '\'';
         }
 

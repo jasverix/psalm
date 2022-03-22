@@ -88,7 +88,7 @@ class IncludeTest extends TestCase
         $config->skip_checks_on_unresolvable_includes = false;
 
         $this->expectException(CodeException::class);
-        $this->expectExceptionMessageRegExp('/\b' . preg_quote($error_message, '/') . '\b/');
+        $this->expectExceptionMessageMatches('/\b' . preg_quote($error_message, '/') . '\b/');
 
         $codebase->scanFiles();
 
@@ -478,7 +478,7 @@ class IncludeTest extends TestCase
                     getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
                 ],
                 'hoist_constants' => false,
-                'error_levels' => ['DuplicateClass'],
+                'ignored_issues' => ['DuplicateClass'],
             ],
             'duplicateClassesProperty' => [
                 'files' => [
@@ -496,7 +496,7 @@ class IncludeTest extends TestCase
                     getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
                 ],
                 'hoist_constants' => false,
-                'error_levels' => ['DuplicateClass', 'MissingPropertyType'],
+                'ignored_issues' => ['DuplicateClass', 'MissingPropertyType'],
             ],
             'functionsDefined' => [
                 'files' => [

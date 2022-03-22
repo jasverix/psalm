@@ -153,9 +153,7 @@ class ElseIfAnalyzer
             $elseif_context_clauses = array_values(
                 array_filter(
                     $elseif_context_clauses,
-                    function ($c) use ($reconciled_expression_clauses): bool {
-                        return !in_array($c->hash, $reconciled_expression_clauses);
-                    }
+                    fn($c): bool => !in_array($c->hash, $reconciled_expression_clauses)
                 )
             );
         }
@@ -167,9 +165,7 @@ class ElseIfAnalyzer
         try {
             if (array_filter(
                 $entry_clauses,
-                function ($clause): bool {
-                    return (bool)$clause->possibilities;
-                }
+                fn($clause): bool => (bool)$clause->possibilities
             )) {
                 $omit_keys = array_reduce(
                     $entry_clauses,
@@ -177,9 +173,7 @@ class ElseIfAnalyzer
                      * @param array<string> $carry
                      * @return array<string>
                      */
-                    function (array $carry, Clause $clause): array {
-                        return array_merge($carry, array_keys($clause->possibilities));
-                    },
+                    fn(array $carry, Clause $clause): array => array_merge($carry, array_keys($clause->possibilities)),
                     []
                 );
 
@@ -233,6 +227,7 @@ class ElseIfAnalyzer
                 $reconcilable_elseif_types,
                 $active_elseif_types,
                 $elseif_context->vars_in_scope,
+                $elseif_context->references_in_scope,
                 $newly_reconciled_var_ids,
                 $cond_referenced_var_ids,
                 $statements_analyzer,
@@ -261,7 +256,7 @@ class ElseIfAnalyzer
                             && !array_key_exists($var_id, $newly_reconciled_var_ids)
                             && !array_key_exists($var_id, $cond_referenced_var_ids)
                         ) {
-                            unset($elseif_context->vars_in_scope[$var_id]);
+                            $elseif_context->removePossibleReference($var_id);
                         }
                     }
                 }
@@ -279,6 +274,10 @@ class ElseIfAnalyzer
         ) === false
         ) {
             return false;
+        }
+
+        foreach ($elseif_context->parent_remove_vars as $var_id => $_) {
+            $outer_context->removeVarFromConflictingClauses($var_id);
         }
 
         /** @var array<string, int> */
@@ -341,7 +340,7 @@ class ElseIfAnalyzer
 
             $reasonable_clause_count = count($if_scope->reasonable_clauses);
 
-            if ($reasonable_clause_count && $reasonable_clause_count < 20000 && $elseif_clauses) {
+            if ($reasonable_clause_count && $reasonable_clause_count < 20_000 && $elseif_clauses) {
                 $if_scope->reasonable_clauses = Algebra::combineOredClauses(
                     $if_scope->reasonable_clauses,
                     $elseif_clauses,
@@ -362,6 +361,7 @@ class ElseIfAnalyzer
                     $negated_elseif_types,
                     [],
                     $pre_conditional_context->vars_in_scope,
+                    $pre_conditional_context->references_in_scope,
                     $newly_reconciled_var_ids,
                     [],
                     $statements_analyzer,
@@ -435,6 +435,12 @@ class ElseIfAnalyzer
         } catch (ComplicatedExpressionException $e) {
             $if_scope->negated_clauses = [];
         }
+
+        // Track references set in the elseif to make sure they aren't reused later
+        $outer_context->updateReferencesPossiblyFromConfusingScope(
+            $elseif_context,
+            $statements_analyzer
+        );
 
         return null;
     }

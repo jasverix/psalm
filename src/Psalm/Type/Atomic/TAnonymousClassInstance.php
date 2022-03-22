@@ -5,7 +5,7 @@ namespace Psalm\Type\Atomic;
 /**
  * Denotes an anonymous class (i.e. `new class{}`) with potential methods
  */
-class TAnonymousClassInstance extends TNamedObject
+final class TAnonymousClassInstance extends TNamedObject
 {
     /**
      * @var string|null
@@ -15,9 +15,9 @@ class TAnonymousClassInstance extends TNamedObject
     /**
      * @param string $value the name of the object
      */
-    public function __construct(string $value, bool $was_static = false, ?string $extends = null)
+    public function __construct(string $value, bool $is_static = false, ?string $extends = null)
     {
-        parent::__construct($value, $was_static);
+        parent::__construct($value, $is_static);
 
         $this->extends = $extends;
     }
@@ -28,7 +28,7 @@ class TAnonymousClassInstance extends TNamedObject
         ?string $this_class,
         int $analysis_php_version_id
     ): ?string {
-        return $analysis_php_version_id >= 70200 ? ($this->extends ?? 'object') : null;
+        return $analysis_php_version_id >= 7_02_00 ? ($this->extends ?? 'object') : null;
     }
 
     /**

@@ -24,7 +24,6 @@ use function defined;
 use function getcwd;
 use function ini_set;
 use function is_string;
-use function method_exists;
 
 use const ARRAY_FILTER_USE_KEY;
 use const DIRECTORY_SEPARATOR;
@@ -153,28 +152,6 @@ class TestCase extends BaseTestCase
         return $this->getName($withDataSet);
     }
 
-    /**
-     * Compatibility alias
-     */
-    public function expectExceptionMessageRegExp(string $regexp): void
-    {
-        if (method_exists($this, 'expectExceptionMessageMatches')) {
-            $this->expectExceptionMessageMatches($regexp);
-        } else {
-            /** @psalm-suppress UndefinedMethod */
-            parent::expectExceptionMessageRegExp($regexp);
-        }
-    }
-
-    public static function assertRegExp(string $pattern, string $string, string $message = ''): void
-    {
-        if (method_exists(self::class, 'assertMatchesRegularExpression')) {
-            self::assertMatchesRegularExpression($pattern, $string, $message);
-        } else {
-            parent::assertRegExp($pattern, $string, $message);
-        }
-    }
-
     public static function assertArrayKeysAreStrings(array $array, string $message = ''): void
     {
         $validKeys = array_filter($array, 'is_string', ARRAY_FILTER_USE_KEY);
@@ -183,9 +160,7 @@ class TestCase extends BaseTestCase
 
     public static function assertArrayKeysAreZeroOrString(array $array, string $message = ''): void
     {
-        $isZeroOrString = /** @param mixed $key */ function ($key): bool {
-            return $key === 0 || is_string($key);
-        };
+        $isZeroOrString = /** @param mixed $key */ fn($key): bool => $key === 0 || is_string($key);
         $validKeys = array_filter($array, $isZeroOrString, ARRAY_FILTER_USE_KEY);
         self::assertTrue(count($array) === count($validKeys), $message);
     }

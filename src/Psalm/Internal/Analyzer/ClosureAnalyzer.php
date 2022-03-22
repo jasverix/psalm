@@ -5,7 +5,6 @@ namespace Psalm\Internal\Analyzer;
 use PhpParser;
 use Psalm\CodeLocation;
 use Psalm\Context;
-use Psalm\Internal\Analyzer\FunctionLikeAnalyzer;
 use Psalm\Internal\Codebase\VariableUseGraph;
 use Psalm\Internal\DataFlow\DataFlowNode;
 use Psalm\Internal\PhpVisitor\ShortClosureVisitor;
@@ -95,7 +94,7 @@ class ClosureAnalyzer extends FunctionLikeAnalyzer
                 $use_context->vars_in_scope['$this'] = clone $context->vars_in_scope['$this'];
             } elseif ($context->self) {
                 $this_atomic = new TNamedObject($context->self);
-                $this_atomic->was_static = true;
+                $this_atomic->is_static = true;
 
                 $use_context->vars_in_scope['$this'] = new Union([$this_atomic]);
             }
@@ -160,6 +159,7 @@ class ClosureAnalyzer extends FunctionLikeAnalyzer
 
                 if ($use->byRef) {
                     $use_context->vars_in_scope[$use_var_id]->by_ref = true;
+                    $use_context->references_to_external_scope[$use_var_id] = true;
                 }
 
                 $use_context->vars_possibly_in_scope[$use_var_id] = true;

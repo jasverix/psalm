@@ -21,7 +21,7 @@ use Psalm\Progress\VoidProgress;
 use Throwable;
 
 use function abs;
-use function array_flip;
+use function array_fill_keys;
 use function array_intersect_key;
 use function array_map;
 use function array_merge;
@@ -155,10 +155,6 @@ class StatementsProvider
 
             $existing_statements = $this->parser_cache_provider->loadExistingStatementsFromCache($file_path);
 
-            if ($existing_statements && !$existing_statements[0] instanceof PhpParser\Node\Stmt) {
-                $existing_statements = null;
-            }
-
             $existing_file_contents = $this->parser_cache_provider->loadExistingFileContentsFromCache($file_path);
 
             // this happens after editing temporary file
@@ -180,7 +176,7 @@ class StatementsProvider
 
             if ($existing_statements
                 && $existing_file_contents
-                && abs(strlen($existing_file_contents) - strlen($file_contents)) < 5000
+                && abs(strlen($existing_file_contents) - strlen($file_contents)) < 5_000
             ) {
                 $file_changes = FileDiffer::getDiff($existing_file_contents, $file_contents);
 
@@ -216,19 +212,8 @@ class StatementsProvider
                         $file_contents
                     );
 
-                $unchanged_members = array_map(
-                    function (int $_): bool {
-                        return true;
-                    },
-                    array_flip($unchanged_members)
-                );
-
-                $unchanged_signature_members = array_map(
-                    function (int $_): bool {
-                        return true;
-                    },
-                    array_flip($unchanged_signature_members)
-                );
+                $unchanged_members = array_fill_keys($unchanged_members, true);
+                $unchanged_signature_members = array_fill_keys($unchanged_signature_members, true);
 
                 $file_path_hash = md5($file_path);
 
@@ -243,17 +228,7 @@ class StatementsProvider
                     $changed_members
                 );
 
-                $changed_members = array_map(
-                    /**
-                     * @param int $_
-                     *
-                     * @return bool
-                     */
-                    function ($_): bool {
-                        return true;
-                    },
-                    array_flip($changed_members)
-                );
+                $changed_members = array_fill_keys($changed_members, true);
 
                 if (isset($this->unchanged_members[$file_path])) {
                     $this->unchanged_members[$file_path] = array_intersect_key(
@@ -433,8 +408,8 @@ class StatementsProvider
         ];
 
         if (!self::$lexer) {
-            $major_version = Codebase::transformPhpVersionId($analysis_php_version_id, 10000);
-            $minor_version = Codebase::transformPhpVersionId($analysis_php_version_id % 10000, 100);
+            $major_version = Codebase::transformPhpVersionId($analysis_php_version_id, 10_000);
+            $minor_version = Codebase::transformPhpVersionId($analysis_php_version_id % 10_000, 100);
             self::$lexer = new PhpParser\Lexer\Emulative([
                 'usedAttributes' => $attributes,
                 'phpVersion' => $major_version . '.' . $minor_version,

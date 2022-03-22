@@ -12,7 +12,7 @@ use function array_fill_keys;
 use function array_map;
 use function implode;
 
-abstract class FunctionLikeStorage
+abstract class FunctionLikeStorage implements HasAttributesInterface
 {
     use CustomMetadataTrait;
 
@@ -122,17 +122,17 @@ abstract class FunctionLikeStorage
     public $template_types;
 
     /**
-     * @var array<int, Assertion>
+     * @var array<int, Possibilities>
      */
     public $assertions = [];
 
     /**
-     * @var array<int, Assertion>
+     * @var array<int, Possibilities>
      */
     public $if_true_assertions = [];
 
     /**
-     * @var array<int, Assertion>
+     * @var array<int, Possibilities>
      */
     public $if_false_assertions = [];
 
@@ -243,15 +243,21 @@ abstract class FunctionLikeStorage
     {
         $newlines = $allow_newlines && !empty($this->params);
 
-        $symbol_text = 'function ' . $this->cased_name . '(' . ($newlines ? "\n" : '') . implode(
-            ',' . ($newlines ? "\n" : ' '),
-            array_map(
-                function (FunctionLikeParameter $param) use ($newlines): string {
-                    return ($newlines ? '    ' : '') . ($param->type ?: 'mixed') . ' $' . $param->name;
-                },
-                $this->params
+        $symbol_text = 'function ' . $this->cased_name . '('
+            . ($newlines ? "\n" : '')
+            . implode(
+                ',' . ($newlines ? "\n" : ' '),
+                array_map(
+                    fn(FunctionLikeParameter $param): string =>
+                        ($newlines ? '    ' : '')
+                        . ($param->type ? $param->type->getId(false) : 'mixed')
+                        . ' $' . $param->name,
+                    $this->params
+                )
             )
-        ) . ($newlines ? "\n" : '') . ') : ' . ($this->return_type ?: 'mixed');
+            . ($newlines ? "\n" : '')
+            . ') : '
+            . ($this->return_type ?: 'mixed');
 
         if (!$this instanceof MethodStorage) {
             return $symbol_text;
@@ -292,5 +298,13 @@ abstract class FunctionLikeStorage
     {
         $this->params[] = $param;
         $this->param_lookup[$param->name] = $lookup_value ?? true;
+    }
+
+    /**
+     * @return list<AttributeStorage>
+     */
+    public function getAttributeStorages(): array
+    {
+        return $this->attributes;
     }
 }
