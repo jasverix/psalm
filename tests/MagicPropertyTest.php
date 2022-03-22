@@ -4,6 +4,7 @@ namespace Psalm\Tests;
 
 use Psalm\Config;
 use Psalm\Context;
+use Psalm\Exception\CodeException;
 use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
 use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
@@ -35,13 +36,13 @@ class MagicPropertyTest extends TestCase
     }
 
     /**
-     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
+     * @return iterable<string,array{code:string,assertions?:array<string,string>,ignored_issues?:list<string>}>
      */
     public function providerValidCodeParse(): iterable
     {
         return [
             'propertyDocblock' => [
-                '<?php
+                'code' => '<?php
                     namespace Bar;
 
                     /**
@@ -69,7 +70,7 @@ class MagicPropertyTest extends TestCase
                     $a->foo = "hello";',
             ],
             'propertyOfTypeClassDocblock' => [
-                '<?php
+                'code' => '<?php
                     namespace Bar;
 
                     class PropertyType {}
@@ -99,7 +100,7 @@ class MagicPropertyTest extends TestCase
                     $a->foo = new PropertyType();',
             ],
             'propertySealedDocblockDefinedPropertyFetch' => [
-                '<?php
+                'code' => '<?php
                     namespace Bar;
                     /**
                      * @property string $foo
@@ -128,7 +129,7 @@ class MagicPropertyTest extends TestCase
              * it out.
              */
             'magicSetterUndefinedPropertyNoAnnotation' => [
-                '<?php
+                'code' => '<?php
                     class A {
                         public function __get(string $name): ?string {
                             if ($name === "foo") {
@@ -153,7 +154,7 @@ class MagicPropertyTest extends TestCase
              * it out.
              */
             'magicGetterUndefinedPropertyNoAnnotation' => [
-                '<?php
+                'code' => '<?php
                     class A {
                         public function __get(string $name): ?string {
                             if ($name === "foo") {
@@ -177,7 +178,7 @@ class MagicPropertyTest extends TestCase
              * use the magic setter to set it to a string, so everything is cool.
              */
             'magicSetterValidAssignmentType' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      */
@@ -200,7 +201,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'propertyDocblockAssignmentToMixed' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      */
@@ -227,7 +228,7 @@ class MagicPropertyTest extends TestCase
                 'error_level' => ['MixedAssignment', 'MixedPropertyTypeCoercion'],
             ],
             'namedPropertyByVariable' => [
-                '<?php
+                'code' => '<?php
                     class A {
                         /** @var string|null */
                         public $foo;
@@ -242,7 +243,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'getPropertyExplicitCall' => [
-                '<?php
+                'code' => '<?php
                     class A {
                         public function __get(string $name) {}
 
@@ -262,7 +263,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'inheritedGetPropertyExplicitCall' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $test
                      */
@@ -282,7 +283,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'undefinedThisPropertyFetchWithMagic' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property-read string $name
                      * @property string $otherName
@@ -303,7 +304,7 @@ class MagicPropertyTest extends TestCase
                     echo $a->otherName;',
             ],
             'psalmUndefinedThisPropertyFetchWithMagic' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-property-read string $name
                      * @property string $otherName
@@ -324,7 +325,7 @@ class MagicPropertyTest extends TestCase
                     echo $a->otherName;',
             ],
             'directFetchForMagicProperty' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $test
                      */
@@ -347,7 +348,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'magicPropertyFetchOnProtected' => [
-                '<?php
+                'code' => '<?php
                     class C {
                         /** @var string */
                         protected $foo = "foo";
@@ -369,7 +370,7 @@ class MagicPropertyTest extends TestCase
                 'error_level' => ['MixedArgument'],
             ],
             'dontAssumeNonNullAfterPossibleMagicFetch' => [
-                '<?php
+                'code' => '<?php
                     class C {
                         public function __get(string $name) : string {
                             return "hello";
@@ -385,7 +386,7 @@ class MagicPropertyTest extends TestCase
                 'error_level' => ['PossiblyNullPropertyFetch'],
             ],
             'accessInMagicGet' => [
-                '<?php
+                'code' => '<?php
                     class X {
                         public function __get(string $name) : string {
                             switch ($name) {
@@ -401,7 +402,7 @@ class MagicPropertyTest extends TestCase
                 'error_level' => ['MixedReturnStatement', 'MixedInferredReturnType'],
             ],
             'overrideInheritedProperty' => [
-                '<?php
+                'code' => '<?php
                     interface ServiceInterface {}
 
                     class ConcreteService implements ServiceInterface {
@@ -434,7 +435,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'magicInterfacePropertyRead' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property-read string $foo
                      * @psalm-seal-properties
@@ -452,7 +453,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'phanMagicInterfacePropertyRead' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-property-read string $foo
                      * @psalm-seal-properties
@@ -470,7 +471,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'magicInterfacePropertyWrite' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property-write string $foo
                      * @psalm-seal-properties
@@ -488,7 +489,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'psalmMagicInterfacePropertyWrite' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-property-write string $foo
                      * @psalm-seal-properties
@@ -506,7 +507,7 @@ class MagicPropertyTest extends TestCase
                     }',
             ],
             'psalmPropertyDocblock' => [
-                '<?php
+                'code' => '<?php
                     namespace Bar;
 
                     /**
@@ -534,7 +535,7 @@ class MagicPropertyTest extends TestCase
                     $a->foo = "hello";',
             ],
             'overridePropertyAnnotations' => [
-                '<?php
+                'code' => '<?php
                     namespace Bar;
 
                     /**
@@ -563,7 +564,7 @@ class MagicPropertyTest extends TestCase
                     $a->foo = "hello";',
             ],
             'overrideWithReadWritePropertyAnnotations' => [
-                '<?php
+                'code' => '<?php
                     namespace Bar;
 
                     /**
@@ -598,7 +599,7 @@ class MagicPropertyTest extends TestCase
                     $a->takesString($a->foo);',
             ],
             'removeAssertionsAfterCall' => [
-                '<?php
+                'code' => '<?php
                     class C {
                         /**
                          * @return mixed
@@ -627,7 +628,7 @@ class MagicPropertyTest extends TestCase
                     }'
             ],
             'magicPropertyDefinedOnTrait' => [
-                '<?php
+                'code' => '<?php
                     class UserRecord
                     {
                         use UserFields;
@@ -661,7 +662,7 @@ class MagicPropertyTest extends TestCase
                     $record->last_login_at = new DateTimeImmutable("now");'
             ],
             'reconcileMagicProperties' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string|null $a A
                      * @property string|null $b B
@@ -699,7 +700,7 @@ class MagicPropertyTest extends TestCase
                     }'
             ],
             'propertyReadIsExpanded' => [
-                '<?php
+                'code' => '<?php
                     /** @property self::TYPE_* $type */
                     class A {
                         public const TYPE_A = 1;
@@ -716,7 +717,7 @@ class MagicPropertyTest extends TestCase
                 ],
             ],
             'propertyWriteIsExpanded' => [
-                '<?php
+                'code' => '<?php
                     /** @property self::TYPE_* $type */
                     class A {
                         public const TYPE_A = 1;
@@ -734,13 +735,13 @@ class MagicPropertyTest extends TestCase
     }
 
     /**
-     * @return iterable<string,array{string,error_message:string,1?:string[],2?:bool,3?:string}>
+     * @return iterable<string,array{code:string,error_message:string,ignored_issues?:list<string>,php_version?:string}>
      */
     public function providerInvalidCodeParse(): iterable
     {
         return [
             'annotationWithoutGetter' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property bool $is_protected
                      */
@@ -753,7 +754,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'UndefinedThisPropertyFetch',
             ],
             'propertyDocblockInvalidAssignment' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      */
@@ -776,7 +777,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidPropertyAssignmentValue',
             ],
             'propertyInvalidClassAssignment' => [
-                '<?php
+                'code' => '<?php
                     namespace Bar;
 
                     class PropertyType {}
@@ -809,7 +810,7 @@ class MagicPropertyTest extends TestCase
                     . ' \'Bar\PropertyType\' cannot',
             ],
             'propertyWriteDocblockInvalidAssignment' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property-write string $foo
                      */
@@ -832,7 +833,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidPropertyAssignmentValue',
             ],
             'psalmPropertyWriteDocblockInvalidAssignment' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-property-write string $foo
                      */
@@ -855,7 +856,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidPropertyAssignmentValue',
             ],
             'propertySealedDocblockUndefinedPropertyAssignment' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      * @psalm-seal-properties
@@ -879,7 +880,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'UndefinedMagicPropertyAssignment',
             ],
             'propertySealedDocblockDefinedPropertyAssignment' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      * @psalm-seal-properties
@@ -903,7 +904,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidPropertyAssignmentValue',
             ],
             'propertyReadInvalidFetch' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property-read string $foo
                      */
@@ -921,7 +922,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidArgument',
             ],
             'psalmPropertyReadInvalidFetch' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-property-read string $foo
                      */
@@ -939,7 +940,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidArgument',
             ],
             'propertySealedDocblockUndefinedPropertyFetch' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      * @psalm-seal-properties
@@ -967,7 +968,7 @@ class MagicPropertyTest extends TestCase
              * This is an error because `@psalm-seal-properties` is specified on the class block.
              */
             'magicSetterUndefinedProperty' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-seal-properties
                      */
@@ -995,7 +996,7 @@ class MagicPropertyTest extends TestCase
              * This is an error because `@psalm-seal-properties` is specified on the class block.
              */
             'magicGetterUndefinedProperty' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-seal-properties
                      */
@@ -1023,7 +1024,7 @@ class MagicPropertyTest extends TestCase
              * the magic setter is used to set it to an object.
              */
             'magicSetterInvalidAssignmentType' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      */
@@ -1047,7 +1048,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidPropertyAssignmentValue',
             ],
             'propertyDocblockAssignmentToMixed' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property string $foo
                      */
@@ -1071,10 +1072,10 @@ class MagicPropertyTest extends TestCase
                         $a->__set("foo", $b);
                     }',
                 'error_message' => 'MixedPropertyTypeCoercion',
-                'error_levels' => ['MixedAssignment'],
+                'ignored_issues' => ['MixedAssignment'],
             ],
             'magicInterfacePropertyWrongProperty' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property-read string $foo
                      * @psalm-seal-properties
@@ -1093,7 +1094,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'UndefinedMagicPropertyFetch',
             ],
             'psalmMagicInterfacePropertyWrongProperty' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-property-read string $foo
                      * @psalm-seal-properties
@@ -1112,7 +1113,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'UndefinedMagicPropertyFetch',
             ],
             'magicInterfaceWrongPropertyWrite' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @property-write string $foo
                      * @psalm-seal-properties
@@ -1131,7 +1132,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'UndefinedMagicPropertyAssignment',
             ],
             'psalmMagicInterfaceWrongPropertyWrite' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @psalm-property-write string $foo
                      * @psalm-seal-properties
@@ -1150,7 +1151,7 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'UndefinedMagicPropertyAssignment',
             ],
             'propertyDocblockOnProperty' => [
-                '<?php
+                'code' => '<?php
                     class A {
                        /** @property string[] */
                       public array $arr;
@@ -1158,5 +1159,29 @@ class MagicPropertyTest extends TestCase
                 'error_message' => 'InvalidDocblock'
             ],
         ];
+    }
+
+    public function testSealAllMethodsWithoutFoo(): void
+    {
+        Config::getInstance()->seal_all_properties = true;
+
+        $this->addFile(
+            'somefile.php',
+            '<?php
+              class A {
+                public function __get(string $name) {}
+              }
+
+              class B extends A {}
+
+              $b = new B();
+              $result = $b->foo;
+              '
+        );
+
+        $error_message = 'UndefinedMagicPropertyFetch';
+        $this->expectException(CodeException::class);
+        $this->expectExceptionMessage($error_message);
+        $this->analyzeFile('somefile.php', new Context());
     }
 }

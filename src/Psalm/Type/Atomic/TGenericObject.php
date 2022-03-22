@@ -14,7 +14,7 @@ use function substr;
 /**
  * Denotes an object type that has generic parameters e.g. `ArrayObject<string, Foo\Bar>`
  */
-class TGenericObject extends TNamedObject
+final class TGenericObject extends TNamedObject
 {
     use GenericTrait;
 
@@ -73,7 +73,7 @@ class TGenericObject extends TNamedObject
     ): ?string {
         $result = $this->toNamespacedString($namespace, $aliased_classes, $this_class, true);
         $intersection = strrpos($result, '&');
-        if ($intersection === false || $analysis_php_version_id >= 80100) {
+        if ($intersection === false || $analysis_php_version_id >= 8_01_00) {
             return $result;
         }
         return substr($result, $intersection+1);
@@ -98,7 +98,7 @@ class TGenericObject extends TNamedObject
         return true;
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return $this->value;
     }

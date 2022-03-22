@@ -33,6 +33,15 @@ class TClassString extends TString
      */
     public $as_type;
 
+    /** @var bool */
+    public $is_loaded = false;
+
+    /** @var bool */
+    public $is_interface = false;
+
+    /** @var bool */
+    public $is_enum = false;
+
     public function __construct(string $as = 'object', ?TNamedObject $as_type = null)
     {
         $this->as = $as;
@@ -41,20 +50,31 @@ class TClassString extends TString
 
     public function getKey(bool $include_extra = true): string
     {
-        return 'class-string' . ($this->as === 'object' ? '' : '<' . $this->as_type . '>');
+        if ($this->is_interface) {
+            $key = 'interface-string';
+        } elseif ($this->is_enum) {
+            $key = 'enum-string';
+        } else {
+            $key = 'class-string';
+        }
+
+        return $key . ($this->as === 'object' ? '' : '<' . $this->as_type . '>');
     }
 
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
-        return $this->getKey();
+        if ($this->is_interface) {
+            $key = 'interface-string';
+        } elseif ($this->is_enum) {
+            $key = 'enum-string';
+        } else {
+            $key = 'class-string';
+        }
+
+        return ($this->is_loaded ? 'loaded-' : '') . $key . ($this->as === 'object' ? '' : '<' . $this->as_type . '>');
     }
 
-    public function getId(bool $nested = false): string
-    {
-        return $this->getKey();
-    }
-
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return 'class-string';
     }
@@ -115,7 +135,7 @@ class TClassString extends TString
 
     public function replaceTemplateTypesWithStandins(
         TemplateResult $template_result,
-        ?Codebase $codebase = null,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer = null,
         ?Atomic $input_type = null,
         ?int $input_arg_offset = null,

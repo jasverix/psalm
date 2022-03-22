@@ -66,7 +66,7 @@ class MatchAnalyzer
 
         $context->inside_conditional = $was_inside_conditional;
 
-        $switch_var_id = ExpressionIdentifier::getArrayVarId(
+        $switch_var_id = ExpressionIdentifier::getExtendedVarId(
             $stmt->cond,
             null,
             $statements_analyzer
@@ -79,7 +79,8 @@ class MatchAnalyzer
                 && $stmt->cond->name instanceof PhpParser\Node\Name
                 && ($stmt->cond->name->parts === ['get_class']
                     || $stmt->cond->name->parts === ['gettype']
-                    || $stmt->cond->name->parts === ['get_debug_type'])
+                    || $stmt->cond->name->parts === ['get_debug_type']
+                    || $stmt->cond->name->parts === ['count'])
                 && $stmt->cond->getArgs()
             ) {
                 $first_arg = $stmt->cond->getArgs()[0];
@@ -253,6 +254,7 @@ class MatchAnalyzer
                     $reconcilable_types,
                     [],
                     $context->vars_in_scope,
+                    $context->references_in_scope,
                     $changed_var_ids,
                     [],
                     $statements_analyzer,
@@ -264,12 +266,10 @@ class MatchAnalyzer
                 if (isset($vars_in_scope_reconciled[$switch_var_id])) {
                     $array_literal_types = array_filter(
                         $vars_in_scope_reconciled[$switch_var_id]->getAtomicTypes(),
-                        function ($type) {
-                            return $type instanceof TLiteralInt
-                                || $type instanceof TLiteralString
-                                || $type instanceof TLiteralFloat
-                                || $type instanceof TEnumCase;
-                        }
+                        fn($type) => $type instanceof TLiteralInt
+                            || $type instanceof TLiteralString
+                            || $type instanceof TLiteralFloat
+                            || $type instanceof TEnumCase
                     );
 
                     if ($array_literal_types) {
@@ -314,9 +314,8 @@ class MatchAnalyzer
         }
 
         $array_items = array_map(
-            function ($cond): PhpParser\Node\Expr\ArrayItem {
-                return new VirtualArrayItem($cond, null, false, $cond->getAttributes());
-            },
+            fn($cond): PhpParser\Node\Expr\ArrayItem =>
+                new VirtualArrayItem($cond, null, false, $cond->getAttributes()),
             $conds
         );
 

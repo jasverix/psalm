@@ -28,43 +28,6 @@ class ScopeAnalyzer
     public const ACTION_RETURN = 'RETURN';
 
     /**
-     * @param array<PhpParser\Node\Stmt>   $stmts
-     *
-     */
-    public static function doesEverBreak(array $stmts): bool
-    {
-        if (empty($stmts)) {
-            return false;
-        }
-
-        for ($i = count($stmts) - 1; $i >= 0; --$i) {
-            $stmt = $stmts[$i];
-
-            if ($stmt instanceof PhpParser\Node\Stmt\Break_) {
-                return true;
-            }
-
-            if ($stmt instanceof PhpParser\Node\Stmt\If_) {
-                if (self::doesEverBreak($stmt->stmts)) {
-                    return true;
-                }
-
-                if ($stmt->else && self::doesEverBreak($stmt->else->stmts)) {
-                    return true;
-                }
-
-                foreach ($stmt->elseifs as $elseif) {
-                    if (self::doesEverBreak($elseif->stmts)) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * @param array<PhpParser\Node> $stmts
      * @param list<'loop'|'switch'> $break_types
      * @param bool $return_is_exit Exit and Throw statements are treated differently from return if this is false
@@ -91,6 +54,16 @@ class ScopeAnalyzer
                 ($stmt instanceof PhpParser\Node\Stmt\Expression && $stmt->expr instanceof PhpParser\Node\Expr\Exit_)
             ) {
                 if (!$return_is_exit && $stmt instanceof PhpParser\Node\Stmt\Return_) {
+                    $stmt_return_type = null;
+                    if ($nodes && $stmt->expr) {
+                        $stmt_return_type = $nodes->getType($stmt->expr);
+                    }
+
+                    // don't consider a return if the expression never returns (e.g. a throw inside a short closure)
+                    if ($stmt_return_type && $stmt_return_type->isNever()) {
+                        return array_values(array_unique(array_merge($control_actions, [self::ACTION_END])));
+                    }
+
                     return array_values(array_unique(array_merge($control_actions, [self::ACTION_RETURN])));
                 }
 
@@ -151,9 +124,7 @@ class ScopeAnalyzer
 
                 $all_leave = !array_filter(
                     $if_statement_actions,
-                    function ($action) {
-                        return $action === self::ACTION_NONE;
-                    }
+                    fn($action) => $action === self::ACTION_NONE
                 );
 
                 $else_statement_actions = $stmt->else
@@ -168,9 +139,7 @@ class ScopeAnalyzer
                     && $else_statement_actions
                     && !array_filter(
                         $else_statement_actions,
-                        function ($action) {
-                            return $action === self::ACTION_NONE;
-                        }
+                        fn($action) => $action === self::ACTION_NONE
                     );
 
                 $all_elseif_actions = [];
@@ -187,9 +156,7 @@ class ScopeAnalyzer
                         $all_leave = $all_leave
                             && !array_filter(
                                 $elseif_control_actions,
-                                function ($action) {
-                                    return $action === self::ACTION_NONE;
-                                }
+                                fn($action) => $action === self::ACTION_NONE
                             );
 
                         $all_elseif_actions = array_merge($elseif_control_actions, $all_elseif_actions);
@@ -216,9 +183,7 @@ class ScopeAnalyzer
                         $else_statement_actions,
                         $all_elseif_actions
                     ),
-                    function ($action) {
-                        return $action !== self::ACTION_NONE;
-                    }
+                    fn($action) => $action !== self::ACTION_NONE
                 );
             }
 
@@ -278,9 +243,7 @@ class ScopeAnalyzer
 
                 $all_case_actions = array_filter(
                     $all_case_actions,
-                    function ($action) {
-                        return $action !== self::ACTION_NONE;
-                    }
+                    fn($action) => $action !== self::ACTION_NONE
                 );
 
                 if ($has_default_terminator || $stmt->getAttribute('allMatched', false)) {
@@ -307,9 +270,7 @@ class ScopeAnalyzer
 
                 $control_actions = array_filter(
                     array_merge($control_actions, $loop_actions),
-                    function ($action) {
-                        return $action !== self::ACTION_NONE;
-                    }
+                    fn($action) => $action !== self::ACTION_NONE
                 );
 
                 if ($stmt instanceof PhpParser\Node\Stmt\While_
@@ -365,9 +326,7 @@ class ScopeAnalyzer
 
                 $try_leaves = !array_filter(
                     $try_statement_actions,
-                    function ($action) {
-                        return $action === self::ACTION_NONE;
-                    }
+                    fn($action) => $action === self::ACTION_NONE
                 );
 
                 $all_catch_actions = [];
@@ -386,9 +345,7 @@ class ScopeAnalyzer
                         $all_leave = $all_leave
                             && !array_filter(
                                 $catch_actions,
-                                function ($action) {
-                                    return $action === self::ACTION_NONE;
-                                }
+                                fn($action) => $action === self::ACTION_NONE
                             );
 
                         if (!$all_leave) {
@@ -425,9 +382,7 @@ class ScopeAnalyzer
                         return array_merge(
                             array_filter(
                                 $control_actions,
-                                function ($action) {
-                                    return $action !== self::ACTION_NONE;
-                                }
+                                fn($action) => $action !== self::ACTION_NONE
                             ),
                             $finally_statement_actions
                         );
@@ -436,9 +391,7 @@ class ScopeAnalyzer
 
                 $control_actions = array_filter(
                     array_merge($control_actions, $try_statement_actions),
-                    function ($action) {
-                        return $action !== self::ACTION_NONE;
-                    }
+                    fn($action) => $action !== self::ACTION_NONE
                 );
             }
         }

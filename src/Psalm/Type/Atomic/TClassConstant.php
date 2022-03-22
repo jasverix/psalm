@@ -8,7 +8,7 @@ use Psalm\Type\Atomic;
 /**
  * Denotes a class constant whose value might not yet be known.
  */
-class TClassConstant extends Atomic
+final class TClassConstant extends Atomic
 {
     /** @var string */
     public $fq_classlike_name;
@@ -27,17 +27,12 @@ class TClassConstant extends Atomic
         return 'class-constant(' . $this->fq_classlike_name . '::' . $this->const_name . ')';
     }
 
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
         return $this->fq_classlike_name . '::' . $this->const_name;
     }
 
-    public function getId(bool $nested = false): string
-    {
-        return $this->fq_classlike_name . '::' . $this->const_name;
-    }
-
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return 'class-constant(' . $this->fq_classlike_name . '::' . $this->const_name . ')';
     }

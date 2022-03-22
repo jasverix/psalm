@@ -8,11 +8,6 @@ namespace Psalm\Type\Atomic;
  */
 class TScalar extends Scalar
 {
-    public function __toString(): string
-    {
-        return 'scalar';
-    }
-
     public function getKey(bool $include_extra = true): string
     {
         return 'scalar';
@@ -35,7 +30,7 @@ class TScalar extends Scalar
         return false;
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return 'scalar';
     }

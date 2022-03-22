@@ -11,6 +11,7 @@ use Psalm\Internal\Analyzer\Statements\Expression\CallAnalyzer;
 use Psalm\Internal\Analyzer\Statements\Expression\ExpressionIdentifier;
 use Psalm\Internal\Analyzer\Statements\ExpressionAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Type\TemplateResult;
 use Psalm\Issue\InvalidMethodCall;
 use Psalm\Issue\InvalidScope;
 use Psalm\Issue\NullReference;
@@ -43,7 +44,8 @@ class MethodCallAnalyzer extends CallAnalyzer
         StatementsAnalyzer $statements_analyzer,
         PhpParser\Node\Expr\MethodCall $stmt,
         Context $context,
-        bool $real_method_call = true
+        bool $real_method_call = true,
+        ?TemplateResult $template_result = null
     ): bool {
         $was_inside_call = $context->inside_call;
 
@@ -89,7 +91,7 @@ class MethodCallAnalyzer extends CallAnalyzer
             }
         }
 
-        $lhs_var_id = ExpressionIdentifier::getArrayVarId(
+        $lhs_var_id = ExpressionIdentifier::getExtendedVarId(
             $stmt->var,
             $statements_analyzer->getFQCLN(),
             $statements_analyzer
@@ -194,7 +196,8 @@ class MethodCallAnalyzer extends CallAnalyzer
                     : null,
                 false,
                 $lhs_var_id,
-                $result
+                $result,
+                $template_result
             );
             if (isset($context->vars_in_scope[$lhs_var_id])
                 && ($possible_new_class_type = $context->vars_in_scope[$lhs_var_id]) instanceof Union
@@ -225,9 +228,7 @@ class MethodCallAnalyzer extends CallAnalyzer
         if (count($possible_new_class_types) > 0) {
             $class_type = array_reduce(
                 $possible_new_class_types,
-                function (?Union $type_1, Union $type_2) use ($codebase): Union {
-                    return Type::combineUnionTypes($type_1, $type_2, $codebase);
-                }
+                fn(?Union $type_1, Union $type_2): Union => Type::combineUnionTypes($type_1, $type_2, $codebase)
             );
         }
 
@@ -380,7 +381,7 @@ class MethodCallAnalyzer extends CallAnalyzer
             return $stmt->isFirstClassCallable() || self::checkMethodArgs(
                 null,
                 $stmt->getArgs(),
-                null,
+                new TemplateResult([], []),
                 $context,
                 new CodeLocation($statements_analyzer->getSource(), $stmt),
                 $statements_analyzer

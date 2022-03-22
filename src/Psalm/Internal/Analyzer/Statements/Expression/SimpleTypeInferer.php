@@ -26,6 +26,7 @@ use Psalm\Type\Atomic\TLiteralInt;
 use Psalm\Type\Atomic\TLiteralString;
 use Psalm\Type\Atomic\TMixed;
 use Psalm\Type\Atomic\TNonEmptyArray;
+use Psalm\Type\Atomic\TNonEmptyList;
 use Psalm\Type\Atomic\TNonEmptyString;
 use Psalm\Type\Atomic\TString;
 use Psalm\Type\Union;
@@ -433,6 +434,18 @@ class SimpleTypeInferer
             }
         }
 
+        if ($stmt instanceof PhpParser\Node\Expr\New_) {
+            $resolved_class_name = $stmt->class->getAttribute('resolvedName');
+
+            if (!is_string($resolved_class_name)) {
+                return null;
+            }
+
+            return new Union([
+                new Type\Atomic\TNamedObject($resolved_class_name)
+            ]);
+        }
+
         return null;
     }
 
@@ -513,6 +526,12 @@ class SimpleTypeInferer
 
         if (!$item_key_type || !$item_value_type) {
             return null;
+        }
+
+        if ($array_creation_info->all_list) {
+            return new Union([
+                new TNonEmptyList($item_value_type),
+            ]);
         }
 
         return new Union([

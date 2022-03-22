@@ -9,11 +9,6 @@ use Psalm\Type\Atomic;
  */
 class TObject extends Atomic
 {
-    public function __toString(): string
-    {
-        return 'object';
-    }
-
     public function getKey(bool $include_extra = true): string
     {
         return 'object';
@@ -28,7 +23,7 @@ class TObject extends Atomic
         ?string $this_class,
         int $analysis_php_version_id
     ): ?string {
-        return $analysis_php_version_id >= 70200 ? $this->getKey() : null;
+        return $analysis_php_version_id >= 7_02_00 ? $this->getKey() : null;
     }
 
     public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool

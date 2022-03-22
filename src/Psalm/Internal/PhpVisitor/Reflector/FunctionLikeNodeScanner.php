@@ -5,6 +5,7 @@ namespace Psalm\Internal\PhpVisitor\Reflector;
 use LogicException;
 use PhpParser;
 use PhpParser\Node\Identifier;
+use PhpParser\Node\IntersectionType;
 use PhpParser\Node\Name;
 use PhpParser\Node\NullableType;
 use PhpParser\Node\Stmt\Class_;
@@ -34,13 +35,13 @@ use Psalm\Issue\InvalidDocblock;
 use Psalm\Issue\MissingDocblockType;
 use Psalm\Issue\ParseError;
 use Psalm\IssueBuffer;
-use Psalm\Storage\Assertion;
 use Psalm\Storage\ClassLikeStorage;
 use Psalm\Storage\FileStorage;
 use Psalm\Storage\FunctionLikeParameter;
 use Psalm\Storage\FunctionLikeStorage;
 use Psalm\Storage\FunctionStorage;
 use Psalm\Storage\MethodStorage;
+use Psalm\Storage\Possibilities;
 use Psalm\Storage\PropertyStorage;
 use Psalm\Type;
 use Psalm\Type\Atomic\TArray;
@@ -340,22 +341,23 @@ class FunctionLikeNodeScanner
                         foreach ($rules as $var_id => $rule) {
                             foreach ($rule as $rule_part) {
                                 if (count($rule_part) > 1) {
+                                    $var_assertions = [];
                                     continue 2;
                                 }
-                            }
 
-                            if (isset($existing_params[$var_id])) {
-                                $param_offset = $existing_params[$var_id];
+                                if (isset($existing_params[$var_id])) {
+                                    $param_offset = $existing_params[$var_id];
 
-                                $var_assertions[] = new Assertion(
-                                    $param_offset,
-                                    $rule
-                                );
-                            } elseif (strpos($var_id, '$this->') === 0) {
-                                $var_assertions[] = new Assertion(
-                                    $var_id,
-                                    $rule
-                                );
+                                    $var_assertions[] = new Possibilities(
+                                        $param_offset,
+                                        $rule_part
+                                    );
+                                } elseif (strpos($var_id, '$this->') === 0) {
+                                    $var_assertions[] = new Possibilities(
+                                        $var_id,
+                                        $rule_part
+                                    );
+                                }
                             }
                         }
                     } else {
@@ -425,14 +427,15 @@ class FunctionLikeNodeScanner
 
         if ($parser_return_type) {
             $original_type = $parser_return_type;
-            if ($original_type instanceof PhpParser\Node\IntersectionType) {
-                throw new UnexpectedValueException('Intersection types not yet supported');
-            }
-            /** @var Identifier|Name|NullableType|UnionType $original_type */
+            /** @var Identifier|IntersectionType|Name|NullableType|UnionType $original_type */
 
             $storage->return_type = TypeHintResolver::resolve(
                 $original_type,
-                $this->codebase->scanner,
+                new CodeLocation(
+                    $this->file_scanner,
+                    $original_type
+                ),
+                $this->codebase,
                 $this->file_storage,
                 $this->classlike_storage,
                 $this->aliases,
@@ -610,6 +613,7 @@ class FunctionLikeNodeScanner
 
                 $doc_comment = $param->getDocComment();
                 $var_comment_type = null;
+                $var_comment_readonly = false;
                 if ($doc_comment) {
                     $var_comments = CommentAnalyzer::getTypeFromComment(
                         $doc_comment,
@@ -623,6 +627,7 @@ class FunctionLikeNodeScanner
 
                     if ($var_comment !== null) {
                         $var_comment_type = $var_comment->type;
+                        $var_comment_readonly = $var_comment->readonly;
                     }
                 }
 
@@ -653,7 +658,8 @@ class FunctionLikeNodeScanner
                 $property_storage->location = $param_storage->location;
                 $property_storage->stmt_location = new CodeLocation($this->file_scanner, $param);
                 $property_storage->has_default = (bool)$param->default;
-                $property_storage->readonly = (bool)($param->flags & PhpParser\Node\Stmt\Class_::MODIFIER_READONLY);
+                $param_type_readonly = (bool)($param->flags & PhpParser\Node\Stmt\Class_::MODIFIER_READONLY);
+                $property_storage->readonly = $param_type_readonly ?: $var_comment_readonly;
                 $param_storage->promoted_property = true;
                 $property_storage->is_promoted = true;
 
@@ -820,14 +826,15 @@ class FunctionLikeNodeScanner
         $param_typehint = $param->type;
 
         if ($param_typehint) {
-            if ($param_typehint instanceof PhpParser\Node\IntersectionType) {
-                throw new UnexpectedValueException('Intersection types not yet supported');
-            }
-            /** @var Identifier|Name|NullableType|UnionType $param_typehint */
+            /** @var Identifier|IntersectionType|Name|NullableType|UnionType $param_typehint */
 
             $param_type = TypeHintResolver::resolve(
                 $param_typehint,
-                $this->codebase->scanner,
+                new CodeLocation(
+                    $this->file_scanner,
+                    $param_typehint
+                ),
+                $this->codebase,
                 $this->file_storage,
                 $this->classlike_storage,
                 $this->aliases,
@@ -1077,7 +1084,7 @@ class FunctionLikeNodeScanner
             if ($method_name_lc === strtolower($class_name)
                 && !isset($classlike_storage->methods['__construct'])
                 && strpos($fq_classlike_name, '\\') === false
-                && $this->codebase->analysis_php_version_id <= 70400
+                && $this->codebase->analysis_php_version_id <= 7_04_00
             ) {
                 $this->codebase->methods->setDeclaringMethodId(
                     $fq_classlike_name,

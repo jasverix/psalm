@@ -8,8 +8,6 @@ use Psalm\Internal\Type\TemplateInferredTypeReplacer;
 use Psalm\Internal\Type\TemplateResult;
 use Psalm\Internal\Type\TemplateStandinTypeReplacer;
 use Psalm\Type\Atomic;
-use Psalm\Type\Atomic\TKeyedArray;
-use Psalm\Type\Atomic\TObject;
 use Psalm\Type\Union;
 
 use function array_keys;
@@ -22,7 +20,7 @@ use function implode;
 /**
  * Denotes an object with specified member variables e.g. `object{foo:int, bar:string}`.
  */
-class TObjectWithProperties extends TObject
+final class TObjectWithProperties extends TObject
 {
     use HasIntersectionTrait;
 
@@ -48,7 +46,7 @@ class TObjectWithProperties extends TObject
         $this->methods = $methods;
     }
 
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
         $extra_types = '';
 
@@ -62,9 +60,8 @@ class TObjectWithProperties extends TObject
                 /**
                  * @param  string|int $name
                  */
-                function ($name, Union $type): string {
-                    return $name . ($type->possibly_undefined ? '?' : '') . ':' . $type;
-                },
+                fn($name, Union $type): string => $name . ($type->possibly_undefined ? '?' : '') . ':'
+                    . $type->getId($exact),
                 array_keys($this->properties),
                 $this->properties
             )
@@ -73,47 +70,7 @@ class TObjectWithProperties extends TObject
         $methods_string = implode(
             ', ',
             array_map(
-                function (string $name): string {
-                    return $name . '()';
-                },
-                array_keys($this->methods)
-            )
-        );
-
-        return 'object{'
-            . $properties_string . ($methods_string && $properties_string ? ', ' : '')
-            . $methods_string
-            . '}' . $extra_types;
-    }
-
-    public function getId(bool $nested = false): string
-    {
-        $extra_types = '';
-
-        if ($this->extra_types) {
-            $extra_types = '&' . implode('&', $this->extra_types);
-        }
-
-        $properties_string = implode(
-            ', ',
-            array_map(
-                /**
-                 * @param  string|int $name
-                 */
-                function ($name, Union $type): string {
-                    return $name . ($type->possibly_undefined ? '?' : '') . ':' . $type->getId();
-                },
-                array_keys($this->properties),
-                $this->properties
-            )
-        );
-
-        $methods_string = implode(
-            ', ',
-            array_map(
-                function (string $name): string {
-                    return $name . '()';
-                },
+                fn(string $name): string => $name . '()',
                 array_keys($this->methods)
             )
         );
@@ -145,22 +102,16 @@ class TObjectWithProperties extends TObject
                         /**
                          * @param  string|int $name
                          */
-                        function (
-                            $name,
-                            Union $type
-                        ) use (
-                            $namespace,
-                            $aliased_classes,
-                            $this_class,
-                            $use_phpdoc_format
-                        ): string {
-                            return $name . ($type->possibly_undefined ? '?' : '') . ':' . $type->toNamespacedString(
+                        fn($name, Union $type): string =>
+                            $name .
+                            ($type->possibly_undefined ? '?' : '')
+                            . ':'
+                            . $type->toNamespacedString(
                                 $namespace,
                                 $aliased_classes,
                                 $this_class,
-                                $use_phpdoc_format
-                            );
-                        },
+                                false
+                            ),
                         array_keys($this->properties),
                         $this->properties
                     )
@@ -221,7 +172,7 @@ class TObjectWithProperties extends TObject
 
     public function replaceTemplateTypesWithStandins(
         TemplateResult $template_result,
-        ?Codebase $codebase = null,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer = null,
         ?Atomic $input_type = null,
         ?int $input_arg_offset = null,
@@ -279,7 +230,7 @@ class TObjectWithProperties extends TObject
         return array_merge($this->properties, $this->extra_types !== null ? array_values($this->extra_types) : []);
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return $this->getKey();
     }

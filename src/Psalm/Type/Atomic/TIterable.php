@@ -14,7 +14,7 @@ use function substr;
 /**
  * denotes the `iterable` type(which can also result from an `is_iterable` check).
  */
-class TIterable extends Atomic
+final class TIterable extends Atomic
 {
     use HasIntersectionTrait;
     use GenericTrait;
@@ -56,16 +56,16 @@ class TIterable extends Atomic
         return 'iterable';
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return 'iterable';
     }
 
-    public function getId(bool $nested = false): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
         $s = '';
         foreach ($this->type_params as $type_param) {
-            $s .= $type_param->getId() . ', ';
+            $s .= $type_param->getId($exact) . ', ';
         }
 
         $extra_types = '';
@@ -77,11 +77,6 @@ class TIterable extends Atomic
         return $this->value . '<' . substr($s, 0, -2) . '>' . $extra_types;
     }
 
-    public function __toString(): string
-    {
-        return $this->getId();
-    }
-
     /**
      * @param  array<lowercase-string, string> $aliased_classes
      */
@@ -91,7 +86,7 @@ class TIterable extends Atomic
         ?string $this_class,
         int $analysis_php_version_id
     ): ?string {
-        return $analysis_php_version_id >= 70100 ? 'iterable' : null;
+        return $analysis_php_version_id >= 7_01_00 ? 'iterable' : null;
     }
 
     public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool

@@ -25,8 +25,8 @@ use Psalm\Issue\AbstractMethodCall;
 use Psalm\Issue\ImpureMethodCall;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\Event\AfterMethodCallAnalysisEvent;
-use Psalm\Storage\Assertion;
 use Psalm\Storage\ClassLikeStorage;
+use Psalm\Storage\Possibilities;
 use Psalm\Type;
 use Psalm\Type\Atomic;
 use Psalm\Type\Atomic\TNamedObject;
@@ -62,7 +62,8 @@ class ExistingAtomicStaticCallAnalyzer
         MethodIdentifier $method_id,
         string $cased_method_id,
         ClassLikeStorage $class_storage,
-        bool &$moved_call
+        bool &$moved_call,
+        ?TemplateResult $inferred_template_result = null
     ): void {
         $fq_class_name = $method_id->fq_class_name;
         $method_name_lc = $method_id->method_name;
@@ -184,6 +185,10 @@ class ExistingAtomicStaticCallAnalyzer
         }
 
         $template_result = new TemplateResult([], $found_generic_params ?: []);
+
+        if ($inferred_template_result) {
+            $template_result->lower_bounds += $inferred_template_result->lower_bounds;
+        }
 
         if (CallAnalyzer::checkMethodArgs(
             $method_id,
@@ -312,15 +317,13 @@ class ExistingAtomicStaticCallAnalyzer
                 }
             }
 
-            $generic_params = $template_result->lower_bounds;
-
             if ($method_storage->assertions) {
                 CallAnalyzer::applyAssertionsToContext(
                     $stmt_name,
                     null,
                     $method_storage->assertions,
                     $stmt->getArgs(),
-                    $generic_params,
+                    $template_result,
                     $context,
                     $statements_analyzer
                 );
@@ -330,9 +333,8 @@ class ExistingAtomicStaticCallAnalyzer
                 $statements_analyzer->node_data->setIfTrueAssertions(
                     $stmt,
                     array_map(
-                        function (Assertion $assertion) use ($generic_params, $codebase): Assertion {
-                            return $assertion->getUntemplatedCopy($generic_params, null, $codebase);
-                        },
+                        fn(Possibilities $assertion): Possibilities =>
+                            $assertion->getUntemplatedCopy($template_result, null, $codebase),
                         $method_storage->if_true_assertions
                     )
                 );
@@ -342,9 +344,8 @@ class ExistingAtomicStaticCallAnalyzer
                 $statements_analyzer->node_data->setIfFalseAssertions(
                     $stmt,
                     array_map(
-                        function (Assertion $assertion) use ($generic_params, $codebase): Assertion {
-                            return $assertion->getUntemplatedCopy($generic_params, null, $codebase);
-                        },
+                        fn(Possibilities $assertion): Possibilities =>
+                            $assertion->getUntemplatedCopy($template_result, null, $codebase),
                         $method_storage->if_false_assertions
                     )
                 );
@@ -419,7 +420,7 @@ class ExistingAtomicStaticCallAnalyzer
             }
         }
 
-        $return_type_candidate = $return_type_candidate ?? Type::getMixed();
+        $return_type_candidate ??= Type::getMixed();
 
         StaticCallAnalyzer::taintReturnType(
             $statements_analyzer,

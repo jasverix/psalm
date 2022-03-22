@@ -3,12 +3,14 @@
 namespace Psalm\Internal\PluginManager;
 
 use DOMDocument;
-use DomElement;
+use DOMElement;
 use Psalm\Config;
 use RuntimeException;
 
+use function assert;
 use function file_get_contents;
 use function file_put_contents;
+use function sprintf;
 use function strpos;
 use function substr;
 
@@ -52,7 +54,7 @@ class ConfigFile
     public function removePlugin(string $plugin_class): void
     {
         $config_xml = $this->readXml();
-        /** @var DomElement */
+        /** @var DOMElement */
         $psalm_root = $config_xml->getElementsByTagName('psalm')[0];
         $plugins_elements = $psalm_root->getElementsByTagName('plugins');
         if (!$plugins_elements->length) {
@@ -60,7 +62,7 @@ class ConfigFile
             return;
         }
 
-        /** @var DomElement */
+        /** @var DOMElement */
         $plugins_element = $plugins_elements->item(0);
 
         $plugin_elements = $plugins_element->getElementsByTagName('pluginClass');
@@ -83,7 +85,7 @@ class ConfigFile
     public function addPlugin(string $plugin_class): void
     {
         $config_xml = $this->readXml();
-        /** @var DomElement */
+        /** @var DOMElement */
         $psalm_root = $config_xml->getElementsByTagName('psalm')->item(0);
         $plugins_elements = $psalm_root->getElementsByTagName('plugins');
         if (!$plugins_elements->length) {
@@ -92,7 +94,7 @@ class ConfigFile
                 $psalm_root->appendChild($plugins_element);
             }
         } else {
-            /** @var DomElement */
+            /** @var DOMElement */
             $plugins_element = $plugins_elements->item(0);
         }
 
@@ -123,6 +125,7 @@ class ConfigFile
             }
         }
 
+        assert($file_contents !== '');
         $doc->loadXML($file_contents);
 
         return $doc;
@@ -144,6 +147,9 @@ class ConfigFile
             }
         }
 
-        file_put_contents($this->path, $new_file_contents);
+        $result = file_put_contents($this->path, $new_file_contents);
+        if ($result === false) {
+            throw new RuntimeException(sprintf('Unable to save xml to %s', $this->path));
+        }
     }
 }

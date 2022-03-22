@@ -82,7 +82,6 @@ class SwitchCaseAnalyzer
             $case_context->branch_point = $case_context->branch_point ?: (int) $stmt->getAttribute('startFilePos');
         }
 
-        $case_context->parent_context = $context;
         $case_scope = $case_context->case_scope = new CaseScope($case_context);
 
         $case_equality_expr = null;
@@ -109,7 +108,6 @@ class SwitchCaseAnalyzer
             if (ExpressionAnalyzer::analyze($statements_analyzer, $case->cond, $case_context) === false) {
                 unset($case_scope->parent_context);
                 unset($case_context->case_scope);
-                unset($case_context->parent_context);
 
                 return false;
             }
@@ -281,7 +279,6 @@ class SwitchCaseAnalyzer
 
             unset($case_scope->parent_context);
             unset($case_context->case_scope);
-            unset($case_context->parent_context);
 
             $statements_analyzer->node_data = $old_node_data;
 
@@ -408,6 +405,7 @@ class SwitchCaseAnalyzer
                     $reconcilable_if_types,
                     [],
                     $case_context->vars_in_scope,
+                    $case_context->references_in_scope,
                     $changed_var_ids,
                     $case->cond && $switch_var_id ? [$switch_var_id => true] : [],
                     $statements_analyzer,
@@ -466,12 +464,6 @@ class SwitchCaseAnalyzer
             );
         }
 
-        $pre_possibly_assigned_var_ids = $case_context->possibly_assigned_var_ids;
-        $case_context->possibly_assigned_var_ids = [];
-
-        $pre_assigned_var_ids = $case_context->assigned_var_ids;
-        $case_context->assigned_var_ids = [];
-
         $statements_analyzer->analyze($case_stmts, $case_context);
 
         $traverser = new PhpParser\NodeTraverser;
@@ -486,20 +478,6 @@ class SwitchCaseAnalyzer
 
         $statements_analyzer->node_data = $old_node_data;
 
-        /** @var array<string, int> */
-        $new_case_assigned_var_ids = $case_context->assigned_var_ids;
-        $case_context->assigned_var_ids = $pre_assigned_var_ids + $new_case_assigned_var_ids;
-
-        /** @var array<string, bool> */
-        $new_case_possibly_assigned_var_ids = $case_context->possibly_assigned_var_ids;
-        $case_context->possibly_assigned_var_ids =
-            $pre_possibly_assigned_var_ids + $new_case_possibly_assigned_var_ids;
-
-        $context->referenced_var_ids = array_merge(
-            $context->referenced_var_ids,
-            $case_context->referenced_var_ids
-        );
-
         if ($case_exit_type !== 'return_throw') {
             if (self::handleNonReturningCase(
                 $statements_analyzer,
@@ -513,7 +491,6 @@ class SwitchCaseAnalyzer
             ) === false) {
                 unset($case_scope->parent_context);
                 unset($case_context->case_scope);
-                unset($case_context->parent_context);
 
                 return false;
             }
@@ -570,7 +547,6 @@ class SwitchCaseAnalyzer
 
         unset($case_scope->parent_context);
         unset($case_context->case_scope);
-        unset($case_context->parent_context);
 
         return null;
     }

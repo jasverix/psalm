@@ -22,7 +22,6 @@ use Psalm\IssueBuffer;
 use Psalm\Type;
 use Psalm\Type\Atomic\Scalar;
 use Psalm\Type\Atomic\TArray;
-use Psalm\Type\Atomic\TBool;
 use Psalm\Type\Atomic\TFalse;
 use Psalm\Type\Atomic\TFloat;
 use Psalm\Type\Atomic\TInt;
@@ -46,7 +45,6 @@ use Psalm\Type\Union;
 use function array_merge;
 use function array_pop;
 use function array_values;
-use function count;
 use function get_class;
 
 /**
@@ -64,8 +62,8 @@ class CastAnalyzer
                 return false;
             }
 
-            $as_int = true;
             $valid_int_type = null;
+            $type_parent_nodes = null;
             $maybe_type = $statements_analyzer->node_data->getType($stmt->expr);
 
             if ($maybe_type) {
@@ -74,35 +72,43 @@ class CastAnalyzer
                     if (!$maybe_type->from_calculation) {
                         self::handleRedundantCast($maybe_type, $statements_analyzer, $stmt);
                     }
+                } elseif ($maybe_type->isSingleStringLiteral()) {
+                    $valid_int_type = Type::getInt(false, (int)$maybe_type->getSingleStringLiteral()->value);
                 }
 
-                if (count($maybe_type->getAtomicTypes()) === 1
-                    && $maybe_type->getSingleAtomic() instanceof TBool) {
-                    $as_int = false;
-                    $type = new Union([
-                        new TLiteralInt(0),
-                        new TLiteralInt(1),
-                    ]);
-
-                    if ($statements_analyzer->data_flow_graph instanceof VariableUseGraph
-                    ) {
-                        $type->parent_nodes = $maybe_type->parent_nodes;
+                if ($maybe_type->hasBool()) {
+                    $casted_type = clone $maybe_type;
+                    if (isset($casted_type->getAtomicTypes()['bool'])) {
+                        $casted_type->addType(new TLiteralInt(0));
+                        $casted_type->addType(new TLiteralInt(1));
+                    } else {
+                        if (isset($casted_type->getAtomicTypes()['true'])) {
+                            $casted_type->addType(new TLiteralInt(1));
+                        }
+                        if (isset($casted_type->getAtomicTypes()['false'])) {
+                            $casted_type->addType(new TLiteralInt(0));
+                        }
                     }
+                    $casted_type->removeType('bool');
+                    $casted_type->removeType('true');
+                    $casted_type->removeType('false');
 
-                    $statements_analyzer->node_data->setType($stmt, $type);
+                    if ($casted_type->isInt()) {
+                        $valid_int_type = $casted_type;
+                    }
+                }
+
+                if ($statements_analyzer->data_flow_graph instanceof VariableUseGraph) {
+                    $type_parent_nodes = $maybe_type->parent_nodes;
                 }
             }
 
-            if ($as_int) {
-                $type = $valid_int_type ?? Type::getInt();
-
-                if ($statements_analyzer->data_flow_graph instanceof VariableUseGraph
-                ) {
-                    $type->parent_nodes = $maybe_type->parent_nodes ?? [];
-                }
-
-                $statements_analyzer->node_data->setType($stmt, $type);
+            $type = $valid_int_type ?? Type::getInt();
+            if ($type_parent_nodes !== null) {
+                $type->parent_nodes = $type_parent_nodes;
             }
+
+            $statements_analyzer->node_data->setType($stmt, $type);
 
             return true;
         }
@@ -233,6 +239,7 @@ class CastAnalyzer
                     if ($type instanceof Scalar) {
                         $keyed_array = new TKeyedArray([new Union([$type])]);
                         $keyed_array->is_list = true;
+                        $keyed_array->sealed = true;
                         $permissible_atomic_types[] = $keyed_array;
                     } elseif ($type instanceof TNull) {
                         $permissible_atomic_types[] = new TArray([Type::getNever(), Type::getNever()]);
@@ -264,7 +271,7 @@ class CastAnalyzer
         }
 
         if ($stmt instanceof PhpParser\Node\Expr\Cast\Unset_
-            && $statements_analyzer->getCodebase()->analysis_php_version_id <= 70400
+            && $statements_analyzer->getCodebase()->analysis_php_version_id <= 7_04_00
         ) {
             if (ExpressionAnalyzer::analyze($statements_analyzer, $stmt->expr, $context) === false) {
                 return false;

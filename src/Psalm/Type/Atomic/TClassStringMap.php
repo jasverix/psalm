@@ -9,13 +9,6 @@ use Psalm\Internal\Type\TemplateResult;
 use Psalm\Internal\Type\TemplateStandinTypeReplacer;
 use Psalm\Type;
 use Psalm\Type\Atomic;
-use Psalm\Type\Atomic\TArray;
-use Psalm\Type\Atomic\TGenericObject;
-use Psalm\Type\Atomic\TIterable;
-use Psalm\Type\Atomic\TKeyedArray;
-use Psalm\Type\Atomic\TList;
-use Psalm\Type\Atomic\TNamedObject;
-use Psalm\Type\Atomic\TTemplateParamClass;
 use Psalm\Type\Union;
 
 use function get_class;
@@ -24,7 +17,7 @@ use function get_class;
  * Represents an array where the type of each value
  * is a function of its string key value
  */
-class TClassStringMap extends Atomic
+final class TClassStringMap extends Atomic
 {
     /**
      * @var string
@@ -41,8 +34,6 @@ class TClassStringMap extends Atomic
      */
     public $value_param;
 
-    public const KEY = 'class-string-map';
-
     /**
      * Constructs a new instance of a list
      */
@@ -53,29 +44,15 @@ class TClassStringMap extends Atomic
         $this->as_type = $as_type;
     }
 
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
-        /** @psalm-suppress MixedOperand */
-        return static::KEY
+        return 'class-string-map'
             . '<'
             . $this->param_name
             . ' as '
-            . ($this->as_type ? (string) $this->as_type : 'object')
+            . ($this->as_type ? $this->as_type->getId($exact) : 'object')
             . ', '
-            . ((string) $this->value_param)
-            . '>';
-    }
-
-    public function getId(bool $nested = false): string
-    {
-        /** @psalm-suppress MixedOperand */
-        return static::KEY
-            . '<'
-            . $this->param_name
-            . ' as '
-            . ($this->as_type ? (string) $this->as_type : 'object')
-            . ', '
-            . $this->value_param->getId()
+            . $this->value_param->getId($exact)
             . '>';
     }
 
@@ -104,8 +81,7 @@ class TClassStringMap extends Atomic
                 );
         }
 
-        /** @psalm-suppress MixedOperand */
-        return static::KEY
+        return 'class-string-map'
             . '<'
             . $this->param_name
             . ($this->as_type ? ' as ' . $this->as_type : '')
@@ -143,7 +119,7 @@ class TClassStringMap extends Atomic
 
     public function replaceTemplateTypesWithStandins(
         TemplateResult $template_result,
-        ?Codebase $codebase = null,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer = null,
         ?Atomic $input_type = null,
         ?int $input_arg_offset = null,
@@ -231,7 +207,7 @@ class TClassStringMap extends Atomic
         return true;
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
         return $this->getKey();
     }

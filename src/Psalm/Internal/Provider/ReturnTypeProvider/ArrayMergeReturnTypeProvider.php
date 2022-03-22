@@ -23,6 +23,7 @@ use function array_values;
 use function count;
 use function is_string;
 use function max;
+use function mb_strcut;
 
 /**
  * @internal
@@ -47,12 +48,15 @@ class ArrayMergeReturnTypeProvider implements FunctionReturnTypeProviderInterfac
             return Type::getMixed();
         }
 
+        $is_replace = mb_strcut($event->getFunctionId(), 6, 7) === 'replace';
+
         $inner_value_types = [];
         $inner_key_types = [];
 
         $codebase = $statements_source->getCodebase();
 
         $generic_properties = [];
+        $class_strings = [];
         $all_keyed_arrays = true;
         $all_int_offsets = true;
         $all_nonempty_lists = true;
@@ -106,8 +110,16 @@ class ArrayMergeReturnTypeProvider implements FunctionReturnTypeProviderInterfac
 
                             foreach ($unpacked_type_part->properties as $key => $type) {
                                 if (!is_string($key)) {
-                                    $generic_properties[] = $type;
+                                    if ($is_replace) {
+                                        $generic_properties[$key] = $type;
+                                    } else {
+                                        $generic_properties[] = $type;
+                                    }
                                     continue;
+                                }
+
+                                if (isset($unpacked_type_part->class_strings[$key])) {
+                                    $class_strings[$key] = true;
                                 }
 
                                 if (!isset($generic_properties[$key]) || !$type->possibly_undefined) {
@@ -221,6 +233,10 @@ class ArrayMergeReturnTypeProvider implements FunctionReturnTypeProviderInterfac
         ) {
             $objectlike = new TKeyedArray($generic_properties);
 
+            if ($class_strings !== []) {
+                $objectlike->class_strings = $class_strings;
+            }
+
             if ($all_nonempty_lists || $all_int_offsets) {
                 $objectlike->is_list = true;
             }
@@ -246,7 +262,7 @@ class ArrayMergeReturnTypeProvider implements FunctionReturnTypeProviderInterfac
                 ]);
             }
 
-            $inner_key_type = $inner_key_type ?? Type::getArrayKey();
+            $inner_key_type ??= Type::getArrayKey();
 
             if ($any_nonempty) {
                 return new Union([

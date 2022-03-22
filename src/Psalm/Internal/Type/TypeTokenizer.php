@@ -47,6 +47,7 @@ class TypeTokenizer
         'numeric-string' => true,
         'class-string' => true,
         'interface-string' => true,
+        'enum-string' => true,
         'trait-string' => true,
         'callable-string' => true,
         'callable-array' => true,
@@ -54,8 +55,6 @@ class TypeTokenizer
         'stringable-object' => true,
         'pure-callable' => true,
         'pure-Closure' => true,
-        'mysql-escaped-string' => true, // deprecated
-        'html-escaped-string' => true, // deprecated
         'literal-string' => true,
         'non-empty-literal-string' => true,
         'lowercase-string' => true,
@@ -79,6 +78,10 @@ class TypeTokenizer
         'array-key' => true,
         'key-of' => true,
         'value-of' => true,
+        'properties-of' => true,
+        'public-properties-of' => true,
+        'protected-properties-of' => true,
+        'private-properties-of' => true,
         'non-empty-countable' => true,
         'list' => true,
         'non-empty-list' => true,

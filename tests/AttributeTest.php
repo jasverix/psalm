@@ -5,19 +5,21 @@ namespace Psalm\Tests;
 use Psalm\Tests\Traits\InvalidCodeAnalysisTestTrait;
 use Psalm\Tests\Traits\ValidCodeAnalysisTestTrait;
 
+use const DIRECTORY_SEPARATOR;
+
 class AttributeTest extends TestCase
 {
     use InvalidCodeAnalysisTestTrait;
     use ValidCodeAnalysisTestTrait;
 
     /**
-     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
+     * @return iterable<string,array{code:string,assertions?:array<string,string>,ignored_issues?:list<string>}>
      */
     public function providerValidCodeParse(): iterable
     {
         return [
             'classAndPropertyAttributesExists' => [
-                '<?php
+                'code' => '<?php
                     namespace Foo;
 
                     #[\Attribute(\Attribute::TARGET_CLASS)]
@@ -49,12 +51,9 @@ class AttributeTest extends TestCase
                             public string $name = "",
                         ) {}
                     }',
-                [],
-                [],
-                '8.0'
             ],
             'functionAttributeExists' => [
-                '<?php
+                'code' => '<?php
                     namespace {
                         #[Attribute(Attribute::TARGET_CLASS | Attribute::TARGET_FUNCTION | Attribute::TARGET_PARAMETER)]
                         class Deprecated {}
@@ -64,12 +63,9 @@ class AttributeTest extends TestCase
                         #[\Deprecated]
                         function foo() : void {}
                     }',
-                [],
-                [],
-                '8.0'
             ],
             'paramAttributeExists' => [
-                '<?php
+                'code' => '<?php
                     namespace {
                         #[Attribute(Attribute::TARGET_CLASS | Attribute::TARGET_FUNCTION | Attribute::TARGET_PARAMETER)]
                         class Deprecated {}
@@ -78,12 +74,9 @@ class AttributeTest extends TestCase
                     namespace Foo\Bar {
                         function foo(#[\Deprecated] string $foo) : void {}
                     }',
-                [],
-                [],
-                '8.0'
             ],
             'testReflectingClass' => [
-                '<?php
+                'code' => '<?php
                     abstract class BaseAttribute {
                         public function __construct(public string $name) {}
                     }
@@ -98,12 +91,12 @@ class AttributeTest extends TestCase
                             echo $attribute->name;
                         }
                     }',
-                [],
-                [],
-                '8.0'
+                'assertions' => [],
+                'ignored_issues' => [],
+                'php_version' => '8.0'
             ],
             'testReflectingAllAttributes' => [
-                '<?php
+                'code' => '<?php
                     /** @var class-string $a */
                     $cs = stdClass::class;
 
@@ -113,11 +106,11 @@ class AttributeTest extends TestCase
                 'assertions' => [
                     '$b' => 'array<array-key, ReflectionAttribute<object>>',
                 ],
-                [],
-                '8.0'
+                'ignored_issues' => [],
+                'php_version' => '8.0'
             ],
             'convertKeyedArray' => [
-                '<?php
+                'code' => '<?php
                     #[Attribute(Attribute::TARGET_CLASS)]
                     class Route {
                         private $methods = [];
@@ -131,21 +124,15 @@ class AttributeTest extends TestCase
                     #[Route(methods: ["GET"])]
                     class HealthController
                     {}',
-                [],
-                [],
-                '8.0'
             ],
             'allowsRepeatableFlag' => [
-                '<?php
+                'code' => '<?php
                     #[Attribute(Attribute::TARGET_ALL|Attribute::IS_REPEATABLE)] // results in int(127)
                     class A {}
                 ',
-                [],
-                [],
-                '8.0'
             ],
             'allowsClassString' => [
-                '<?php
+                'code' => '<?php
 
                     #[Attribute(Attribute::TARGET_CLASS)]
                     class Foo
@@ -160,12 +147,9 @@ class AttributeTest extends TestCase
 
                     #[Foo(_className: Baz::class)]
                     class Baz {}',
-                [],
-                [],
-                '8.0'
             ],
             'allowsClassStringFromDifferentNamespace' => [
-                '<?php
+                'code' => '<?php
 
                     namespace NamespaceOne {
                         use Attribute;
@@ -200,7 +184,7 @@ class AttributeTest extends TestCase
                 '
             ],
             'returnTypeWillChange7.1' => [
-                '<?php
+                'code' => '<?php
 
                     namespace Rabus\PsalmReturnTypeWillChange;
 
@@ -208,6 +192,9 @@ class AttributeTest extends TestCase
                     use IteratorAggregate;
                     use ReturnTypeWillChange;
 
+                    /**
+                     * @psalm-suppress MissingTemplateParam
+                     */
                     final class EmptyCollection implements IteratorAggregate
                     {
                         #[ReturnTypeWillChange]
@@ -216,12 +203,12 @@ class AttributeTest extends TestCase
                             return new EmptyIterator();
                         }
                     }',
-                [],
-                [],
-                '7.1'
+                'assertions' => [],
+                'ignored_issues' => [],
+                'php_version' => '7.1'
             ],
             'returnTypeWillChange8.1' => [
-                '<?php
+                'code' => '<?php
 
                     namespace Rabus\PsalmReturnTypeWillChange;
 
@@ -229,6 +216,9 @@ class AttributeTest extends TestCase
                     use IteratorAggregate;
                     use ReturnTypeWillChange;
 
+                    /**
+                     * @psalm-suppress MissingTemplateParam
+                     */
                     final class EmptyCollection implements IteratorAggregate
                     {
                         #[ReturnTypeWillChange]
@@ -237,64 +227,206 @@ class AttributeTest extends TestCase
                             return new EmptyIterator();
                         }
                     }',
-                [],
-                [],
-                '8.1'
-            ]
+                'assertions' => [],
+                'ignored_issues' => [],
+                'php_version' => '8.1'
+            ],
+            'createObjectAsAttributeArg' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class B
+                    {
+                        public function __construct(?array $listOfB = null) {}
+                    }
+
+                    #[Attribute(Attribute::TARGET_CLASS)]
+                    class A
+                    {
+                        /**
+                         * @param B[] $listOfB
+                         */
+                        public function __construct(?array $listOfB = null) {}
+                    }
+
+                    #[A([new B])]
+                    class C {}
+                ',
+            ],
+            'selfInClassAttribute' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class SomeAttr
+                    {
+                        /** @param class-string $class */
+                        public function __construct(string $class) {}
+                    }
+
+                    #[SomeAttr(self::class)]
+                    class A
+                    {
+                        #[SomeAttr(self::class)]
+                        public const CONST = "const";
+
+                        #[SomeAttr(self::class)]
+                        public string $foo = "bar";
+
+                        #[SomeAttr(self::class)]
+                        public function baz(): void {}
+                    }
+                ',
+            ],
+            'parentInClassAttribute' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class SomeAttr
+                    {
+                        /** @param class-string $class */
+                        public function __construct(string $class) {}
+                    }
+
+                    class A {}
+
+                    #[SomeAttr(parent::class)]
+                    class B extends A
+                    {
+                        #[SomeAttr(parent::class)]
+                        public const CONST = "const";
+
+                        #[SomeAttr(parent::class)]
+                        public string $foo = "bar";
+
+                        #[SomeAttr(parent::class)]
+                        public function baz(): void {}
+                    }
+                ',
+            ],
+            'selfInInterfaceAttribute' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class SomeAttr
+                    {
+                        /** @param class-string $class */
+                        public function __construct(string $class) {}
+                    }
+
+                    #[SomeAttr(self::class)]
+                    interface C
+                    {
+                        #[SomeAttr(self::class)]
+                        public const CONST = "const";
+
+                        #[SomeAttr(self::class)]
+                        public function baz(): void {}
+                    }
+                ',
+            ],
+            'allowBothParamAndPropertyAttributesForPromotedProperties' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_PARAMETER)]
+                    class Foo {}
+
+                    #[Attribute(Attribute::TARGET_PROPERTY)]
+                    class Bar {}
+
+                    class Baz
+                    {
+                        public function __construct(#[Foo, Bar] private int $test) {}
+                    }
+                ',
+            ],
+            'multipleAttributesInMultipleGroups' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class A {}
+                    #[Attribute]
+                    class B {}
+                    #[Attribute]
+                    class C {}
+                    #[Attribute]
+                    class D {}
+
+                    #[A, B]
+                    #[C, D]
+                    class Foo {}
+                ',
+            ],
+            'propertyLevelSuppression' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_CLASS)]
+                    class ClassAttr {}
+
+                    class Foo
+                    {
+                        /** @psalm-suppress InvalidAttribute */
+                        #[ClassAttr]
+                        public string $bar = "baz";
+                    }
+                ',
+            ],
+            'invalidAttributeDoesntCrash' => [
+                'code' => '<?php
+                    /** @psalm-suppress InvalidScalarArgument */
+                    #[Attribute("foobar")]
+                    class Foo {}
+
+                    #[Foo]
+                    class Bar {}
+                ',
+            ],
         ];
     }
 
     /**
-     * @return iterable<string,array{string,error_message:string,1?:string[],2?:bool,3?:string}>
+     * @return iterable<string,array{code:string,error_message:string,ignored_issues?:list<string>,php_version?:string}>
      */
     public function providerInvalidCodeParse(): iterable
     {
         return [
             'attributeClassHasNoAttributeAnnotation' => [
-                '<?php
+                'code' => '<?php
                     class A {}
 
                     #[A]
                     class B {}',
-                'error_message' => 'InvalidAttribute',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:4:23',
             ],
             'missingAttributeOnClass' => [
-                '<?php
+                'code' => '<?php
                     use Foo\Bar\Pure;
 
                     #[Pure]
                     class Video {}',
-                'error_message' => 'UndefinedAttributeClass',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'UndefinedAttributeClass - src' . DIRECTORY_SEPARATOR . 'somefile.php:4:23',
+            ],
+            'missingAttributeOnProperty' => [
+                'code' => '<?php
+                    use Foo\Bar\Pure;
+
+                    class Baz
+                    {
+                        #[Pure]
+                        public string $foo = "bar";
+                    }
+                ',
+                'error_message' => 'UndefinedAttributeClass - src' . DIRECTORY_SEPARATOR . 'somefile.php:6:27',
             ],
             'missingAttributeOnFunction' => [
-                '<?php
+                'code' => '<?php
                     use Foo\Bar\Pure;
 
                     #[Pure]
                     function foo() : void {}',
-                'error_message' => 'UndefinedAttributeClass',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'UndefinedAttributeClass - src' . DIRECTORY_SEPARATOR . 'somefile.php:4:23',
             ],
             'missingAttributeOnParam' => [
-                '<?php
+                'code' => '<?php
                     use Foo\Bar\Pure;
 
                     function foo(#[Pure] string $str) : void {}',
-                'error_message' => 'UndefinedAttributeClass',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'UndefinedAttributeClass - src' . DIRECTORY_SEPARATOR . 'somefile.php:4:36',
             ],
             'tooFewArgumentsToAttributeConstructor' => [
-                '<?php
+                'code' => '<?php
                     namespace Foo;
 
                     #[\Attribute(\Attribute::TARGET_CLASS)]
@@ -304,13 +436,10 @@ class AttributeTest extends TestCase
 
                     #[Table()]
                     class Video {}',
-                'error_message' => 'TooFewArguments',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'TooFewArguments - src' . DIRECTORY_SEPARATOR . 'somefile.php:9:23',
             ],
             'invalidArgument' => [
-                '<?php
+                'code' => '<?php
                     #[Attribute]
                     class Foo
                     {
@@ -321,13 +450,10 @@ class AttributeTest extends TestCase
 
                     #[Foo("foo")]
                     class Bar{}',
-                'error_message' => 'InvalidScalarArgument',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'InvalidScalarArgument - src' . DIRECTORY_SEPARATOR . 'somefile.php:10:27',
             ],
             'classAttributeUsedOnFunction' => [
-                '<?php
+                'code' => '<?php
                     namespace Foo;
 
                     #[\Attribute(\Attribute::TARGET_CLASS)]
@@ -337,48 +463,248 @@ class AttributeTest extends TestCase
 
                     #[Table("videos")]
                     function foo() : void {}',
-                'error_message' => 'InvalidAttribute',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:9:23',
             ],
             'interfaceCannotBeAttributeClass' => [
-                '<?php
+                'code' => '<?php
                     #[Attribute]
                     interface Foo {}',
-                'error_message' => 'InvalidAttribute',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:2:23',
             ],
             'traitCannotBeAttributeClass' => [
-                '<?php
+                'code' => '<?php
                     #[Attribute]
-                    interface Foo {}',
-                'error_message' => 'InvalidAttribute',
-                [],
-                false,
-                '8.0'
+                    trait Foo {}',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:2:23',
             ],
             'abstractClassCannotBeAttributeClass' => [
-                '<?php
+                'code' => '<?php
                     #[Attribute]
                     abstract class Baz {}',
-                'error_message' => 'InvalidAttribute',
-                [],
-                false,
-                '8.0'
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:2:23',
             ],
-            'abstractClassCannotHavePrivateConstructor' => [
-                '<?php
+            'attributeClassCannotHavePrivateConstructor' => [
+                'code' => '<?php
                     #[Attribute]
                     class Baz {
                         private function __construct() {}
                     }',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:2:23',
+            ],
+            'SKIPPED-attributeInvalidTargetClassConst' => [ // Will be implemented in Psalm 5 where we have better class const analysis
+                'code' => '<?php
+                    class Foo {
+                        #[Attribute]
+                        public const BAR = "baz";
+                    }
+                ',
                 'error_message' => 'InvalidAttribute',
-                [],
-                false,
-                '8.0'
+            ],
+            'attributeInvalidTargetProperty' => [
+                'code' => '<?php
+                    class Foo {
+                        #[Attribute]
+                        public string $bar = "baz";
+                    }
+                ',
+                'error_message' => 'InvalidAttribute',
+            ],
+            'attributeInvalidTargetMethod' => [
+                'code' => '<?php
+                    class Foo {
+                        #[Attribute]
+                        public function bar(): void {}
+                    }
+                ',
+                'error_message' => 'InvalidAttribute',
+            ],
+            'attributeInvalidTargetFunction' => [
+                'code' => '<?php
+                    #[Attribute]
+                    function foo(): void {}
+                ',
+                'error_message' => 'InvalidAttribute',
+            ],
+            'attributeInvalidTargetParameter' => [
+                'code' => '<?php
+                    function foo(#[Attribute] string $_bar): void {}
+                ',
+                'error_message' => 'InvalidAttribute',
+            ],
+            'attributeTargetArgCannotBeVariable' => [
+                'code' => '<?php
+                    $target = 1;
+
+                    #[Attribute($target)]
+                    class Foo {}
+                ',
+                'error_message' => 'UndefinedVariable',
+            ],
+            'attributeTargetArgCannotBeSelfConst' => [
+                'code' => '<?php
+                    #[Attribute(self::BAR)]
+                    class Foo
+                    {
+                        public const BAR = 1;
+                    }
+                ',
+                'error_message' => 'NonStaticSelfCall',
+            ],
+            'noParentInAttributeOnClassWithoutParent' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class SomeAttr
+                    {
+                        /** @param class-string $class */
+                        public function __construct(string $class) {}
+                    }
+
+                    #[SomeAttr(parent::class)]
+                    class A {}
+                ',
+                'error_message' => 'ParentNotFound',
+            ],
+            'undefinedConstantInAttribute' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class Foo
+                    {
+                        public function __construct(int $i) {}
+                    }
+
+                    #[Foo(self::BAR_CONST)]
+                    class Bar {}
+                ',
+                'error_message' => 'UndefinedConstant',
+            ],
+            'getAttributesOnClassWithNonClassAttribute' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_PROPERTY)]
+                    class Attr {}
+
+                    class Foo {}
+
+                    $r = new ReflectionClass(Foo::class);
+                    $r->getAttributes(Attr::class);
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:8:39 - Attribute Attr cannot be used on a class',
+            ],
+            'getAttributesOnFunctionWithNonFunctionAttribute' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_PROPERTY)]
+                    class Attr {}
+
+                    function foo(): void {}
+
+                    /** @psalm-suppress InvalidArgument */
+                    $r = new ReflectionFunction("foo");
+                    $r->getAttributes(Attr::class);
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:9:39 - Attribute Attr cannot be used on a function',
+            ],
+            'getAttributesOnMethodWithNonMethodAttribute' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_PROPERTY)]
+                    class Attr {}
+
+                    class Foo
+                    {
+                        public function bar(): void {}
+                    }
+
+                    $r = new ReflectionMethod("Foo::bar");
+                    $r->getAttributes(Attr::class);
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:11:39 - Attribute Attr cannot be used on a method',
+            ],
+            'getAttributesOnPropertyWithNonPropertyAttribute' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_CLASS)]
+                    class Attr {}
+
+                    class Foo
+                    {
+                        public string $bar = "baz";
+                    }
+
+                    $r = new ReflectionProperty(Foo::class, "bar");
+                    $r->getAttributes(Attr::class);
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:11:39 - Attribute Attr cannot be used on a property',
+            ],
+            'getAttributesOnClassConstantWithNonClassConstantAttribute' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_PROPERTY)]
+                    class Attr {}
+
+                    class Foo
+                    {
+                        public const BAR = "baz";
+                    }
+
+                    $r = new ReflectionClassConstant(Foo::class, "BAR");
+                    $r->getAttributes(Attr::class);
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:11:39 - Attribute Attr cannot be used on a class constant',
+            ],
+            'getAttributesOnParameterWithNonParameterAttribute' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_PROPERTY)]
+                    class Attr {}
+
+                    function foo(int $bar): void {}
+
+                    $r = new ReflectionParameter("foo", "bar");
+                    $r->getAttributes(Attr::class);
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:8:39 - Attribute Attr cannot be used on a function/method parameter',
+            ],
+            'getAttributesWithNonAttribute' => [
+                'code' => '<?php
+                    class NonAttr {}
+
+                    function foo(int $bar): void {}
+
+                    $r = new ReflectionParameter("foo", "bar");
+                    $r->getAttributes(NonAttr::class);
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:7:39 - The class NonAttr doesn\'t have the Attribute attribute',
+            ],
+            'analyzeConstructorForNonexistentAttributes' => [
+                'code' => '<?php
+                    class Foo
+                    {
+                        public function __construct(string $_arg) {}
+                    }
+
+                    /** @psalm-suppress UndefinedAttributeClass */
+                    #[AttrA(new Foo(1))]
+                    class Bar {}
+                ',
+                'error_message' => 'InvalidScalarArgument',
+            ],
+            'multipleAttributesShowErrors' => [
+                'code' => '<?php
+                    #[Attribute(Attribute::TARGET_CLASS)]
+                    class Foo {}
+
+                    #[Attribute(Attribute::TARGET_PARAMETER)]
+                    class Bar {}
+
+                    #[Foo, Bar]
+                    class Baz {}
+                ',
+                'error_message' => 'InvalidAttribute',
+            ],
+            'repeatNonRepeatableAttribute' => [
+                'code' => '<?php
+                    #[Attribute]
+                    class Foo {}
+
+                    #[Foo, Foo]
+                    class Baz {}
+                ',
+                'error_message' => 'InvalidAttribute - src' . DIRECTORY_SEPARATOR . 'somefile.php:5:28 - Attribute Foo is not repeatable',
             ],
         ];
     }

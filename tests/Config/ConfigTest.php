@@ -11,6 +11,7 @@ use Psalm\Exception\CodeException;
 use Psalm\Exception\ConfigException;
 use Psalm\Internal\Analyzer\FileAnalyzer;
 use Psalm\Internal\Analyzer\ProjectAnalyzer;
+use Psalm\Internal\ErrorHandler;
 use Psalm\Internal\Provider\FakeFileProvider;
 use Psalm\Internal\Provider\Providers;
 use Psalm\Internal\RuntimeCaches;
@@ -32,6 +33,7 @@ use function in_array;
 use function is_array;
 use function preg_match;
 use function realpath;
+use function set_error_handler;
 use function sprintf;
 use function symlink;
 use function uniqid;
@@ -46,6 +48,9 @@ class ConfigTest extends TestCase
 
     /** @var ProjectAnalyzer */
     protected $project_analyzer;
+
+    /** @var callable(int, string, string=, int=, array=):bool|null */
+    protected $original_error_handler = null;
 
     public static function setUpBeforeClass(): void
     {
@@ -64,6 +69,8 @@ class ConfigTest extends TestCase
     {
         RuntimeCaches::clearAll();
         $this->file_provider = new FakeFileProvider();
+        $this->original_error_handler = set_error_handler(null);
+        set_error_handler($this->original_error_handler);
     }
 
     private function getProjectAnalyzerWithConfig(Config $config): ProjectAnalyzer
@@ -98,7 +105,7 @@ class ConfigTest extends TestCase
         $config = $this->project_analyzer->getConfig();
 
         $this->assertTrue($config->isInProjectDirs(realpath('src/Psalm/Type.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('examples/StringAnalyzer.php')));
+        $this->assertFalse($config->isInProjectDirs(realpath('examples/TemplateScanner.php')));
     }
 
     public function testIgnoreProjectDirectory(): void
@@ -122,7 +129,7 @@ class ConfigTest extends TestCase
 
         $this->assertTrue($config->isInProjectDirs(realpath('src/Psalm/Type.php')));
         $this->assertFalse($config->isInProjectDirs(realpath('src/Psalm/Internal/Analyzer/FileAnalyzer.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('examples/StringAnalyzer.php')));
+        $this->assertFalse($config->isInProjectDirs(realpath('examples/TemplateScanner.php')));
     }
 
     public function testIgnoreMissingProjectDirectory(): void
@@ -145,8 +152,8 @@ class ConfigTest extends TestCase
         $config = $this->project_analyzer->getConfig();
 
         $this->assertTrue($config->isInProjectDirs(realpath('src/Psalm/Type.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('does/not/exist/FileAnalyzer.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('examples/StringAnalyzer.php')));
+        $this->assertFalse($config->isInProjectDirs(realpath(__DIR__.'/../../').'/does/not/exist/FileAnalyzer.php'));
+        $this->assertFalse($config->isInProjectDirs(realpath('examples/TemplateScanner.php')));
     }
 
     public function testIgnoreSymlinkedProjectDirectory(): void
@@ -181,7 +188,7 @@ class ConfigTest extends TestCase
                     <projectFiles>
                         <directory name="tests" />
                         <ignoreFiles>
-                            <directory name="tests/fixtures/symlinktest/ignored" />
+                            <directory name="tests/fixtures/symlinktest/ignored" resolveSymlinks="true" />
                         </ignoreFiles>
                     </projectFiles>
                 </psalm>'
@@ -192,7 +199,7 @@ class ConfigTest extends TestCase
 
         $this->assertTrue($config->isInProjectDirs(realpath('tests/AnnotationTest.php')));
         $this->assertFalse($config->isInProjectDirs(realpath('tests/fixtures/symlinktest/a/ignoreme.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('examples/StringAnalyzer.php')));
+        $this->assertFalse($config->isInProjectDirs(realpath('examples/TemplateScanner.php')));
 
         $regex = '/^unlink\([^\)]+\): (?:Permission denied|No such file or directory)$/';
         $last_error = error_get_last();
@@ -240,7 +247,7 @@ class ConfigTest extends TestCase
         $this->assertTrue($config->isInProjectDirs(realpath('src/Psalm/Type.php')));
         $this->assertFalse($config->isInProjectDirs(realpath('src/Psalm/Internal/Analyzer/FileAnalyzer.php')));
         $this->assertFalse($config->isInProjectDirs(realpath('src/Psalm/Internal/Analyzer/Statements/ReturnAnalyzer.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('examples/StringAnalyzer.php')));
+        $this->assertFalse($config->isInProjectDirs(realpath('examples/TemplateScanner.php')));
     }
 
     public function testIgnoreWildcardFiles(): void
@@ -265,7 +272,7 @@ class ConfigTest extends TestCase
         $this->assertTrue($config->isInProjectDirs(realpath('src/Psalm/Type.php')));
         $this->assertFalse($config->isInProjectDirs(realpath('src/Psalm/Internal/Analyzer/FileAnalyzer.php')));
         $this->assertTrue($config->isInProjectDirs(realpath('src/Psalm/Internal/Analyzer/Statements/ReturnAnalyzer.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('examples/StringAnalyzer.php')));
+        $this->assertFalse($config->isInProjectDirs(realpath('examples/TemplateScanner.php')));
     }
 
     public function testIgnoreWildcardFilesInWildcardFolder(): void
@@ -321,7 +328,6 @@ class ConfigTest extends TestCase
         $this->assertTrue($config->isInProjectDirs(realpath('src/Psalm/Internal/PhpVisitor/ReflectorVisitor.php')));
         $this->assertFalse($config->isInProjectDirs(realpath('src/Psalm/Internal/Analyzer/FileAnalyzer.php')));
         $this->assertFalse($config->isInProjectDirs(realpath('src/Psalm/Internal/Analyzer/Statements/ReturnAnalyzer.php')));
-        $this->assertFalse($config->isInProjectDirs(realpath('examples/StringAnalyzer.php')));
     }
 
     public function testIssueHandler(): void
@@ -345,8 +351,66 @@ class ConfigTest extends TestCase
 
         $config = $this->project_analyzer->getConfig();
 
-        $this->assertFalse($config->reportIssueInFile('MissingReturnType', realpath('tests/ConfigTest.php')));
+        $this->assertFalse($config->reportIssueInFile('MissingReturnType', realpath(__FILE__)));
         $this->assertFalse($config->reportIssueInFile('MissingReturnType', realpath('src/Psalm/Type.php')));
+    }
+
+    public function testGlobalUndefinedFunctionSuppression(): void
+    {
+        $this->project_analyzer = $this->getProjectAnalyzerWithConfig(
+            Config::loadFromXML(
+                dirname(__DIR__, 2),
+                '<?xml version="1.0"?>
+                <psalm>
+                    <projectFiles>
+                        <directory name="src" />
+                        <directory name="tests" />
+                    </projectFiles>
+
+                    <issueHandlers>
+                        <UndefinedFunction>
+                            <errorLevel type="suppress">
+                                <referencedFunction name="zzz"/>
+                            </errorLevel>
+                        </UndefinedFunction>
+                    </issueHandlers>
+                </psalm>'
+            )
+        );
+
+        $config = $this->project_analyzer->getConfig();
+        $this->assertSame(
+            Config::REPORT_SUPPRESS,
+            $config->getReportingLevelForFunction('UndefinedFunction', 'Some\Namespace\zzz')
+        );
+    }
+
+    public function testMultipleIssueHandlers(): void
+    {
+        $this->project_analyzer = $this->getProjectAnalyzerWithConfig(
+            Config::loadFromXML(
+                dirname(__DIR__, 2),
+                '<?xml version="1.0"?>
+                <psalm>
+                    <projectFiles>
+                        <directory name="src" />
+                        <directory name="tests" />
+                    </projectFiles>
+
+                    <issueHandlers>
+                        <MissingReturnType errorLevel="suppress" />
+                    </issueHandlers>
+                    <issueHandlers>
+                        <UndefinedClass errorLevel="suppress" />
+                    </issueHandlers>
+                </psalm>'
+            )
+        );
+
+        $config = $this->project_analyzer->getConfig();
+
+        $this->assertFalse($config->reportIssueInFile('MissingReturnType', realpath(__FILE__)));
+        $this->assertFalse($config->reportIssueInFile('UndefinedClass', realpath(__FILE__)));
     }
 
     public function testIssueHandlerWithCustomErrorLevels(): void
@@ -409,6 +473,11 @@ class ConfigTest extends TestCase
                                 <referencedVariable name="a" />
                             </errorLevel>
                         </UndefinedGlobalVariable>
+                        <InvalidConstantAssignmentValue>
+                            <errorLevel type="suppress">
+                                <referencedConstant name="Psalm\Bodger::FOO" />
+                            </errorLevel>
+                        </InvalidConstantAssignmentValue>
                     </issueHandlers>
                 </psalm>'
             )
@@ -553,6 +622,14 @@ class ConfigTest extends TestCase
             $config->getReportingLevelForVariable(
                 'UndefinedGlobalVariable',
                 'b'
+            )
+        );
+
+        $this->assertSame(
+            'suppress',
+            $config->getReportingLevelForClassConstant(
+                'InvalidConstantAssignmentValue',
+                'Psalm\Bodger::FOO'
             )
         );
     }
@@ -792,9 +869,7 @@ class ConfigTest extends TestCase
                  *
                  * @return string
                  */
-                function ($issue_name): string {
-                    return '<' . $issue_name . ' errorLevel="suppress" />' . "\n";
-                },
+                fn($issue_name): string => '<' . $issue_name . ' errorLevel="suppress" />' . "\n",
                 IssueHandler::getAllIssueTypes()
             )
         );
@@ -1031,6 +1106,8 @@ class ConfigTest extends TestCase
 
     public function tearDown(): void
     {
+        set_error_handler($this->original_error_handler);
+
         parent::tearDown();
 
         if ($this->getName() === 'testTemplatedFiles') {
@@ -1353,10 +1430,10 @@ class ConfigTest extends TestCase
     {
         return [
             'regular' => [0, null], // flags, expected exception code
-            'invalid scanner class' => [FileTypeSelfRegisteringPlugin::FLAG_SCANNER_INVALID, 1622727271],
-            'invalid analyzer class' => [FileTypeSelfRegisteringPlugin::FLAG_ANALYZER_INVALID, 1622727281],
-            'override scanner' => [FileTypeSelfRegisteringPlugin::FLAG_SCANNER_TWICE, 1622727272],
-            'override analyzer' => [FileTypeSelfRegisteringPlugin::FLAG_ANALYZER_TWICE, 1622727282],
+            'invalid scanner class' => [FileTypeSelfRegisteringPlugin::FLAG_SCANNER_INVALID, 1_622_727_271],
+            'invalid analyzer class' => [FileTypeSelfRegisteringPlugin::FLAG_ANALYZER_INVALID, 1_622_727_281],
+            'override scanner' => [FileTypeSelfRegisteringPlugin::FLAG_SCANNER_TWICE, 1_622_727_272],
+            'override analyzer' => [FileTypeSelfRegisteringPlugin::FLAG_ANALYZER_TWICE, 1_622_727_282],
         ];
     }
 
@@ -1369,7 +1446,7 @@ class ConfigTest extends TestCase
         $extension = uniqid('test');
         $names = [
             'scanner' => uniqid('PsalmTestFileTypeScanner'),
-            'analyzer' => uniqid('PsalmTestFileTypeAnaylzer'),
+            'analyzer' => uniqid('PsalmTestFileTypeAnalyzer'),
             'extension' => $extension,
         ];
         $scannerMock = $this->getMockBuilder(FileScanner::class)
@@ -1384,19 +1461,17 @@ class ConfigTest extends TestCase
         FileTypeSelfRegisteringPlugin::$names = $names;
         FileTypeSelfRegisteringPlugin::$flags = $flags;
 
-        $projectAnalyzer = $this->getProjectAnalyzerWithConfig(
-            TestConfig::loadFromXML(
-                dirname(__DIR__, 2),
-                sprintf(
-                    '<?xml version="1.0"?>
-                    <psalm><plugins><pluginClass class="%s"/></plugins></psalm>',
-                    FileTypeSelfRegisteringPlugin::class
-                )
-            )
+        /** @var non-empty-string $xml */
+        $xml = sprintf(
+            '<?xml version="1.0"?>
+            <psalm><plugins><pluginClass class="%s"/></plugins></psalm>',
+            FileTypeSelfRegisteringPlugin::class
         );
 
-
         try {
+            $projectAnalyzer = $this->getProjectAnalyzerWithConfig(
+                TestConfig::loadFromXML(dirname(__DIR__, 2), $xml)
+            );
             $config = $projectAnalyzer->getConfig();
             $config->initializePlugins($projectAnalyzer);
         } catch (ConfigException $exception) {
@@ -1481,5 +1556,59 @@ class ConfigTest extends TestCase
         $this->assertFalse($config->useStrictTypesForFile(realpath('src/Psalm/Progress') . DIRECTORY_SEPARATOR));
         $this->assertFalse($config->useStrictTypesForFile(realpath('src/Psalm/Report') . DIRECTORY_SEPARATOR));
         $this->assertFalse($config->useStrictTypesForFile(realpath('src/Psalm/SourceControl') . DIRECTORY_SEPARATOR));
+    }
+
+    public function testConfigFileWithXIncludeWithoutFallbackShouldThrowException(): void
+    {
+        $this->expectException(ConfigException::class);
+        $this->expectExceptionMessageMatches('/and no fallback was found/');
+        ErrorHandler::install();
+        Config::loadFromXML(
+            dirname(__DIR__, 2),
+            '<?xml version="1.0"?>
+            <psalm xmlns:xi="http://www.w3.org/2001/XInclude">
+                <projectFiles>
+                    <directory name="src" />
+                    <directory name="tests" />
+                </projectFiles>
+
+                <issueHandlers>
+                    <xi:include href="zz.xml" />
+                </issueHandlers>
+            </psalm>'
+        );
+    }
+
+    public function testConfigFileWithXIncludeWithFallback(): void
+    {
+        ErrorHandler::install();
+        $this->project_analyzer = $this->getProjectAnalyzerWithConfig(
+            Config::loadFromXML(
+                dirname(__DIR__, 2),
+                '<?xml version="1.0"?>
+            <psalm xmlns:xi="http://www.w3.org/2001/XInclude">
+                <projectFiles>
+                    <directory name="src" />
+                    <directory name="tests" />
+                </projectFiles>
+
+                <issueHandlers>
+                    <xi:include href="zz.xml">
+                        <xi:fallback>
+                            <MixedAssignment>
+                                <errorLevel type="suppress">
+                                    <file name="src/Psalm/Type.php" />
+                                </errorLevel>
+                            </MixedAssignment>
+                        </xi:fallback>
+                    </xi:include>
+                </issueHandlers>
+            </psalm>'
+            )
+        );
+
+        $config = $this->project_analyzer->getConfig();
+
+        $this->assertFalse($config->reportIssueInFile('MixedAssignment', realpath('src/Psalm/Type.php')));
     }
 }

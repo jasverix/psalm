@@ -9,11 +9,6 @@ use Psalm\Internal\Type\TemplateResult;
 use Psalm\Internal\Type\TemplateStandinTypeReplacer;
 use Psalm\Type;
 use Psalm\Type\Atomic;
-use Psalm\Type\Atomic\TArray;
-use Psalm\Type\Atomic\TGenericObject;
-use Psalm\Type\Atomic\TIterable;
-use Psalm\Type\Atomic\TKeyedArray;
-use Psalm\Type\Atomic\TList;
 use Psalm\Type\Union;
 
 use function get_class;
@@ -31,6 +26,7 @@ class TList extends Atomic
      */
     public $type_param;
 
+    /** @var non-empty-lowercase-string */
     public const KEY = 'list';
 
     /**
@@ -41,16 +37,9 @@ class TList extends Atomic
         $this->type_param = $type_param;
     }
 
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
-        /** @psalm-suppress MixedOperand */
-        return static::KEY . '<' . $this->type_param . '>';
-    }
-
-    public function getId(bool $nested = false): string
-    {
-        /** @psalm-suppress MixedOperand */
-        return static::KEY . '<' . $this->type_param->getId() . '>';
+        return static::KEY . '<' . $this->type_param->getId($exact) . '>';
     }
 
     public function __clone()
@@ -78,7 +67,6 @@ class TList extends Atomic
                 );
         }
 
-        /** @psalm-suppress MixedOperand */
         return static::KEY
             . '<'
             . $this->type_param->toNamespacedString(
@@ -114,7 +102,7 @@ class TList extends Atomic
 
     public function replaceTemplateTypesWithStandins(
         TemplateResult $template_result,
-        ?Codebase $codebase = null,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer = null,
         ?Atomic $input_type = null,
         ?int $input_arg_offset = null,
@@ -197,13 +185,13 @@ class TList extends Atomic
         return true;
     }
 
-    public function getAssertionString(bool $exact = false): string
+    public function getAssertionString(): string
     {
-        if (!$exact || $this->type_param->isMixed()) {
+        if ($this->type_param->isMixed()) {
             return 'list';
         }
 
-        return $this->toNamespacedString(null, [], null, false);
+        return $this->getId();
     }
 
     public function getChildNodes(): array

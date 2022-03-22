@@ -13,7 +13,6 @@ use Psalm\FileManipulation;
 use Psalm\Internal\Analyzer\ClassLikeAnalyzer;
 use Psalm\Internal\Analyzer\ProjectAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
-use Psalm\Internal\Codebase\ConstantTypeResolver;
 use Psalm\Internal\FileManipulation\ClassDocblockManipulator;
 use Psalm\Internal\FileManipulation\CodeMigration;
 use Psalm\Internal\FileManipulation\FileManipulationBuffer;
@@ -1604,29 +1603,23 @@ class ClassLikes
         if ($visibility === ReflectionProperty::IS_PUBLIC) {
             return array_filter(
                 $storage->constants,
-                function ($constant) {
-                    return $constant->type
-                        && $constant->visibility === ClassLikeAnalyzer::VISIBILITY_PUBLIC;
-                }
+                fn($constant) => $constant->type
+                    && $constant->visibility === ClassLikeAnalyzer::VISIBILITY_PUBLIC
             );
         }
 
         if ($visibility === ReflectionProperty::IS_PROTECTED) {
             return array_filter(
                 $storage->constants,
-                function ($constant) {
-                    return $constant->type
-                        && ($constant->visibility === ClassLikeAnalyzer::VISIBILITY_PUBLIC
-                            || $constant->visibility === ClassLikeAnalyzer::VISIBILITY_PROTECTED);
-                }
+                fn($constant) => $constant->type
+                    && ($constant->visibility === ClassLikeAnalyzer::VISIBILITY_PUBLIC
+                        || $constant->visibility === ClassLikeAnalyzer::VISIBILITY_PROTECTED)
             );
         }
 
         return array_filter(
             $storage->constants,
-            function ($constant) {
-                return $constant->type !== null;
-            }
+            fn($constant) => $constant->type !== null
         );
     }
 
@@ -1639,7 +1632,8 @@ class ClassLikes
         string $constant_name,
         int $visibility,
         ?StatementsAnalyzer $statements_analyzer = null,
-        array $visited_constant_ids = []
+        array $visited_constant_ids = [],
+        bool $late_static_binding = false
     ): ?Union {
         $class_name = strtolower($class_name);
 
@@ -1666,15 +1660,18 @@ class ClassLikes
             }
 
             if ($constant_storage->unresolved_node) {
-                $constant_storage->type = new Union([ConstantTypeResolver::resolve(
+                $constant_storage->inferred_type = new Union([ConstantTypeResolver::resolve(
                     $this,
                     $constant_storage->unresolved_node,
                     $statements_analyzer,
                     $visited_constant_ids
                 )]);
+                if ($constant_storage->type === null || !$constant_storage->type->from_docblock) {
+                    $constant_storage->type = $constant_storage->inferred_type;
+                }
             }
 
-            return $constant_storage->type;
+            return $late_static_binding ? $constant_storage->type : ($constant_storage->inferred_type ?? null);
         } elseif (isset($storage->enum_cases[$constant_name])) {
             return new Union([new TEnumCase($storage->name, $constant_name)]);
         }

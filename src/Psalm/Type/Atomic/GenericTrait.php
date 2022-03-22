@@ -9,15 +9,8 @@ use Psalm\Internal\Type\TemplateResult;
 use Psalm\Internal\Type\TemplateStandinTypeReplacer;
 use Psalm\Type;
 use Psalm\Type\Atomic;
-use Psalm\Type\Atomic\TArray;
-use Psalm\Type\Atomic\TGenericObject;
-use Psalm\Type\Atomic\TIterable;
-use Psalm\Type\Atomic\TKeyedArray;
-use Psalm\Type\Atomic\TList;
-use Psalm\Type\Atomic\TNamedObject;
 use Psalm\Type\TypeNode;
 use Psalm\Type\Union;
-use UnexpectedValueException;
 
 use function array_map;
 use function array_values;
@@ -28,27 +21,11 @@ use function substr;
 
 trait GenericTrait
 {
-    public function __toString(): string
+    public function getId(bool $exact = true, bool $nested = false): string
     {
         $s = '';
         foreach ($this->type_params as $type_param) {
-            $s .= $type_param . ', ';
-        }
-
-        $extra_types = '';
-
-        if ($this instanceof TNamedObject && $this->extra_types) {
-            $extra_types = '&' . implode('&', $this->extra_types);
-        }
-
-        return $this->value . '<' . substr($s, 0, -2) . '>' . $extra_types;
-    }
-
-    public function getId(bool $nested = false): string
-    {
-        $s = '';
-        foreach ($this->type_params as $type_param) {
-            $s .= $type_param->getId() . ', ';
+            $s .= $type_param->getId($exact) . ', ';
         }
 
         $extra_types = '';
@@ -58,15 +35,13 @@ trait GenericTrait
                 $extra_types = '&' . implode(
                     '&',
                     array_map(
-                        function ($type) {
-                            return $type->getId(true);
-                        },
+                        fn($type) => $type->getId($exact, true),
                         $this->extra_types
                     )
                 );
             }
 
-            if ($this->was_static) {
+            if ($this->is_static) {
                 $extra_types .= '&static';
             }
         }
@@ -147,9 +122,8 @@ trait GenericTrait
                     /**
                      * @return string
                      */
-                    function (Atomic $extra_type) use ($namespace, $aliased_classes, $this_class): string {
-                        return $extra_type->toNamespacedString($namespace, $aliased_classes, $this_class, false);
-                    },
+                    fn(Atomic $extra_type): string =>
+                        $extra_type->toNamespacedString($namespace, $aliased_classes, $this_class, false),
                     $this->extra_types
                 )
             );
@@ -163,9 +137,8 @@ trait GenericTrait
                         /**
                          * @return string
                          */
-                        function (Union $type_param) use ($namespace, $aliased_classes, $this_class): string {
-                            return $type_param->toNamespacedString($namespace, $aliased_classes, $this_class, false);
-                        },
+                        fn(Union $type_param): string =>
+                            $type_param->toNamespacedString($namespace, $aliased_classes, $this_class, false),
                         $type_params
                     )
                 ) .
@@ -189,7 +162,7 @@ trait GenericTrait
 
     public function replaceTemplateTypesWithStandins(
         TemplateResult $template_result,
-        ?Codebase $codebase = null,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer = null,
         ?Atomic $input_type = null,
         ?int $input_arg_offset = null,
@@ -209,7 +182,6 @@ trait GenericTrait
 
         if ($input_type instanceof TGenericObject
             && ($this instanceof TGenericObject || $this instanceof TIterable)
-            && $codebase
         ) {
             $input_object_type_params = TemplateStandinTypeReplacer::getMappedGenericTypeParams(
                 $codebase,
@@ -233,10 +205,8 @@ trait GenericTrait
             } elseif ($input_type instanceof TKeyedArray) {
                 if ($offset === 0) {
                     $input_type_param = $input_type->getGenericKeyType();
-                } elseif ($offset === 1) {
-                    $input_type_param = $input_type->getGenericValueType();
                 } else {
-                    throw new UnexpectedValueException('Not expecting offset of ' . $offset);
+                    $input_type_param = $input_type->getGenericValueType();
                 }
             } elseif ($input_type instanceof TNamedObject
                 && isset($input_object_type_params[$offset])
@@ -244,7 +214,6 @@ trait GenericTrait
                 $input_type_param = $input_object_type_params[$offset];
             }
 
-            /** @psalm-suppress PropertyTypeCoercion */
             $atomic->type_params[$offset] = TemplateStandinTypeReplacer::replace(
                 $type_param,
                 $template_result,

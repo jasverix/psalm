@@ -11,13 +11,13 @@ class IfThisIsTest extends TestCase
     use InvalidCodeAnalysisTestTrait;
 
     /**
-     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
+     * @return iterable<string,array{code:string,assertions?:array<string,string>,ignored_issues?:list<string>}>
      */
     public function providerValidCodeParse(): iterable
     {
         return [
             'worksAfterConvert' => [
-                '<?php
+                'code' => '<?php
                     interface I {
                         /**
                          * @return void
@@ -46,7 +46,7 @@ class IfThisIsTest extends TestCase
                 '
             ],
             'withTemplate' => [
-                '<?php
+                'code' => '<?php
                 class Frozen {}
                 class Unfrozen {}
 
@@ -94,7 +94,7 @@ class IfThisIsTest extends TestCase
                 '
             ],
             'subclass' => [
-                '<?php
+                'code' => '<?php
                 class G
                 {
                     /**
@@ -112,8 +112,30 @@ class IfThisIsTest extends TestCase
                 $f->test();
                 '
             ],
+            'ifThisIsWithSelfAlias' => [
+                'code' => '<?php
+                    /**
+                     * @template T of string
+                     */
+                    final class App
+                    {
+                        /**
+                         * @psalm-if-this-is self<"idle">
+                         * @psalm-this-out self<"started">
+                         */
+                        public function start(): void
+                        {
+                            throw new RuntimeException("???");
+                        }
+                    }
+
+                    /** @var App<"idle"> */
+                    $app = new App();
+                    $app->start();
+                '
+            ],
             'ifThisIsAndThisOutAtTheSameTime' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @template T of string
                      */
@@ -135,7 +157,7 @@ class IfThisIsTest extends TestCase
                 '
             ],
             'ifThisIsChangeThisTypeInsideMethod' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @template T
                      */
@@ -195,7 +217,7 @@ class IfThisIsTest extends TestCase
                 ],
             ],
             'ifThisIsResolveTemplateParams' => [
-                '<?php
+                'code' => '<?php
                     /**
                      * @template T
                      */
@@ -268,13 +290,13 @@ class IfThisIsTest extends TestCase
     }
 
     /**
-     * @return array<string, array{0: string, error_message: string}>
+     * @return array<string, array{code: string, error_message: string}>
      */
     public function providerInvalidCodeParse(): iterable
     {
         return [
             'failsWithWrongTemplate1' => [
-                '<?php
+                'code' => '<?php
 
                 /**
                  * @template T
@@ -303,7 +325,7 @@ class IfThisIsTest extends TestCase
                 'error_message' => 'IfThisIsMismatch'
             ],
             'failsWithWrongTemplate2' => [
-                '<?php
+                'code' => '<?php
                 class Frozen {}
                 class Unfrozen {}
 
@@ -352,7 +374,7 @@ class IfThisIsTest extends TestCase
                 'error_message' => 'IfThisIsMismatch'
             ],
             'failWithInvalidTemplateConstraint' => [
-                '<?php
+                'code' => '<?php
                     /** @template T */
                     final class Option { }
 

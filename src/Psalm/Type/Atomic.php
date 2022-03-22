@@ -11,8 +11,6 @@ use Psalm\Internal\Type\TypeAlias\LinkableTypeAlias;
 use Psalm\Type;
 use Psalm\Type\Atomic\TArray;
 use Psalm\Type\Atomic\TArrayKey;
-use Psalm\Type\Atomic\TAssertionEmpty;
-use Psalm\Type\Atomic\TAssertionFalsy;
 use Psalm\Type\Atomic\TBool;
 use Psalm\Type\Atomic\TCallable;
 use Psalm\Type\Atomic\TCallableArray;
@@ -32,7 +30,6 @@ use Psalm\Type\Atomic\TEmptyScalar;
 use Psalm\Type\Atomic\TFalse;
 use Psalm\Type\Atomic\TFloat;
 use Psalm\Type\Atomic\TGenericObject;
-use Psalm\Type\Atomic\THtmlEscapedString;
 use Psalm\Type\Atomic\TInt;
 use Psalm\Type\Atomic\TIntRange;
 use Psalm\Type\Atomic\TIterable;
@@ -61,7 +58,6 @@ use Psalm\Type\Atomic\TNumeric;
 use Psalm\Type\Atomic\TNumericString;
 use Psalm\Type\Atomic\TObject;
 use Psalm\Type\Atomic\TObjectWithProperties;
-use Psalm\Type\Atomic\TPositiveInt;
 use Psalm\Type\Atomic\TResource;
 use Psalm\Type\Atomic\TScalar;
 use Psalm\Type\Atomic\TString;
@@ -80,8 +76,6 @@ use function strtolower;
 
 abstract class Atomic implements TypeNode
 {
-    public const KEY = 'atomic';
-
     /**
      * Whether or not the type has been checked yet
      *
@@ -136,7 +130,7 @@ abstract class Atomic implements TypeNode
                 return new TBool();
 
             case 'void':
-                if ($analysis_php_version_id === null || $analysis_php_version_id >= 70100) {
+                if ($analysis_php_version_id === null || $analysis_php_version_id >= 7_01_00) {
                     return new TVoid();
                 }
 
@@ -146,14 +140,14 @@ abstract class Atomic implements TypeNode
                 return new TArrayKey();
 
             case 'iterable':
-                if ($analysis_php_version_id === null || $analysis_php_version_id >= 70100) {
+                if ($analysis_php_version_id === null || $analysis_php_version_id >= 7_01_00) {
                     return new TIterable();
                 }
 
                 break;
 
             case 'never':
-                if ($analysis_php_version_id === null || $analysis_php_version_id >= 80100) {
+                if ($analysis_php_version_id === null || $analysis_php_version_id >= 8_01_00) {
                     return new TNever();
                 }
 
@@ -162,10 +156,11 @@ abstract class Atomic implements TypeNode
             case 'never-return':
             case 'never-returns':
             case 'no-return':
+            case 'empty':
                 return new TNever();
 
             case 'object':
-                if ($analysis_php_version_id === null || $analysis_php_version_id >= 70200) {
+                if ($analysis_php_version_id === null || $analysis_php_version_id >= 7_02_00) {
                     return new TObject();
                 }
 
@@ -215,7 +210,7 @@ abstract class Atomic implements TypeNode
                 return new TClosedResource();
 
             case 'positive-int':
-                return new TPositiveInt();
+                return new TIntRange(1, null);
 
             case 'numeric':
                 return $analysis_php_version_id !== null ? new TNamedObject($value) : new TNumeric();
@@ -224,27 +219,24 @@ abstract class Atomic implements TypeNode
                 return $analysis_php_version_id !== null ? new TNamedObject($value) : new TTrue();
 
             case 'false':
-                if ($analysis_php_version_id === null || $analysis_php_version_id >= 80000) {
+                if ($analysis_php_version_id === null || $analysis_php_version_id >= 8_00_00) {
                     return new TFalse();
                 }
 
                 return new TNamedObject($value);
 
-            case 'empty':
-                return $analysis_php_version_id !== null ? new TNamedObject($value) : new TAssertionEmpty();
-
             case 'scalar':
                 return $analysis_php_version_id !== null ? new TNamedObject($value) : new TScalar();
 
             case 'null':
-                if ($analysis_php_version_id === null || $analysis_php_version_id >= 80000) {
+                if ($analysis_php_version_id === null || $analysis_php_version_id >= 8_00_00) {
                     return new TNull();
                 }
 
                 return new TNamedObject($value);
 
             case 'mixed':
-                if ($analysis_php_version_id === null || $analysis_php_version_id >= 80000) {
+                if ($analysis_php_version_id === null || $analysis_php_version_id >= 8_00_00) {
                     return new TMixed();
                 }
 
@@ -257,8 +249,17 @@ abstract class Atomic implements TypeNode
                 return new TObjectWithProperties([], ['__tostring' => 'string']);
 
             case 'class-string':
-            case 'interface-string':
                 return new TClassString();
+
+            case 'interface-string':
+                $type = new TClassString();
+                $type->is_interface = true;
+                return $type;
+
+            case 'enum-string':
+                $type = new TClassString();
+                $type->is_enum = true;
+                return $type;
 
             case 'trait-string':
                 return new TTraitString();
@@ -269,9 +270,6 @@ abstract class Atomic implements TypeNode
             case 'numeric-string':
                 return new TNumericString();
 
-            case 'html-escaped-string':
-                return new THtmlEscapedString();
-
             case 'literal-string':
                 return new TNonspecificLiteralString();
 
@@ -280,9 +278,6 @@ abstract class Atomic implements TypeNode
 
             case 'literal-int':
                 return new TNonspecificLiteralInt();
-
-            case 'false-y':
-                return new TAssertionFalsy();
 
             case '$this':
                 return new TNamedObject('static');
@@ -328,6 +323,10 @@ abstract class Atomic implements TypeNode
         return new TNamedObject($value);
     }
 
+    /**
+     * This is the string that will be used to represent the type in Union::$types. This means that two types sharing
+     * the same getKey value will override themselves in an Union
+     */
     abstract public function getKey(bool $include_extra = true): string;
 
     public function isNumericType(): bool
@@ -354,9 +353,7 @@ abstract class Atomic implements TypeNode
                 && ($this->as->hasNamedObjectType()
                     || array_filter(
                         $this->extra_types ?: [],
-                        function ($extra_type) {
-                            return $extra_type->isNamedObjectType();
-                        }
+                        fn($extra_type) => $extra_type->isNamedObjectType()
                     )
                 )
             );
@@ -407,9 +404,7 @@ abstract class Atomic implements TypeNode
                     $this->extra_types
                     && array_filter(
                         $this->extra_types,
-                        function (Atomic $a) use ($codebase): bool {
-                            return $a->hasTraversableInterface($codebase);
-                        }
+                        fn(Atomic $a): bool => $a->hasTraversableInterface($codebase)
                     )
                 )
             );
@@ -432,9 +427,7 @@ abstract class Atomic implements TypeNode
                     $this->extra_types
                     && array_filter(
                         $this->extra_types,
-                        function (Atomic $a) use ($codebase): bool {
-                            return $a->hasCountableInterface($codebase);
-                        }
+                        fn(Atomic $a): bool => $a->hasCountableInterface($codebase)
                     )
                 )
             );
@@ -473,9 +466,7 @@ abstract class Atomic implements TypeNode
                     $this->extra_types
                     && array_filter(
                         $this->extra_types,
-                        function (Atomic $a) use ($codebase): bool {
-                            return $a->hasArrayAccessInterface($codebase);
-                        }
+                        fn(Atomic $a): bool => $a->hasArrayAccessInterface($codebase)
                     )
                 )
             );
@@ -559,9 +550,9 @@ abstract class Atomic implements TypeNode
         }
     }
 
-    public function __toString(): string
+    final public function __toString(): string
     {
-        return '';
+        return $this->getId();
     }
 
     public function __clone()
@@ -583,18 +574,27 @@ abstract class Atomic implements TypeNode
         }
     }
 
-    public function getId(bool $nested = false): string
+    /**
+     * This is the true identifier for the type. It defaults to self::getKey() but can be overrided to be more precise
+     */
+    public function getId(bool $exact = true, bool $nested = false): string
     {
-        return $this->__toString();
+        return $this->getKey();
     }
-
-    public function getAssertionString(bool $exact = false): string
+    /**
+     * This string is used in order to transform a type into an string assertion for the assertion module
+     * Default to self::getId()
+     */
+    public function getAssertionString(): string
     {
         return $this->getId();
     }
 
     /**
-     * @param  array<lowercase-string, string> $aliased_classes
+     * Returns the detailed description of the type, either in phpdoc standard format or Psalm format depending on flag
+     * Default to self::getKey()
+     *
+     * @param array<lowercase-string, string> $aliased_classes
      */
     public function toNamespacedString(
         ?string $namespace,
@@ -606,6 +606,9 @@ abstract class Atomic implements TypeNode
     }
 
     /**
+     * Returns a string representation of the type compatible with php signature or null if the type can't be expressed
+     *  with the given php version
+     *
      * @param  array<lowercase-string, string> $aliased_classes
      */
     abstract public function toPhpString(
@@ -619,7 +622,7 @@ abstract class Atomic implements TypeNode
 
     public function replaceTemplateTypesWithStandins(
         TemplateResult $template_result,
-        ?Codebase $codebase = null,
+        Codebase $codebase,
         ?StatementsAnalyzer $statements_analyzer = null,
         Atomic $input_type = null,
         ?int $input_arg_offset = null,
@@ -668,10 +671,6 @@ abstract class Atomic implements TypeNode
             return true;
         }
 
-        if ($this instanceof TCallableString) {
-            return true;
-        }
-
         if ($this instanceof TNonEmptyArray) {
             return true;
         }
@@ -699,10 +698,6 @@ abstract class Atomic implements TypeNode
         }
 
         if ($this instanceof TIntRange && !$this->contains(0)) {
-            return true;
-        }
-
-        if ($this instanceof TPositiveInt) {
             return true;
         }
 
@@ -789,7 +784,7 @@ abstract class Atomic implements TypeNode
             return true;
         }
 
-        if ($this instanceof TArray && $this->getId() === 'array<never, never>') {
+        if ($this instanceof TArray && $this->isEmptyArray()) {
             return true;
         }
 

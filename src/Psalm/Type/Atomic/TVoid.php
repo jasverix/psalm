@@ -7,13 +7,8 @@ use Psalm\Type\Atomic;
 /**
  * Denotes the `void` type, normally just used to annotate a function/method that returns nothing
  */
-class TVoid extends Atomic
+final class TVoid extends Atomic
 {
-    public function __toString(): string
-    {
-        return 'void';
-    }
-
     public function getKey(bool $include_extra = true): string
     {
         return 'void';
@@ -28,7 +23,7 @@ class TVoid extends Atomic
         ?string $this_class,
         int $analysis_php_version_id
     ): ?string {
-        return $analysis_php_version_id >= 70100 ? $this->getKey() : null;
+        return $analysis_php_version_id >= 7_01_00 ? $this->getKey() : null;
     }
 
     public function canBeFullyExpressedInPhp(int $analysis_php_version_id): bool

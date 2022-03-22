@@ -3,10 +3,10 @@
 namespace Psalm\Internal\Codebase;
 
 use Exception;
+use LibXMLError;
 use LogicException;
 use Psalm\Codebase;
 use Psalm\Internal\Analyzer\ClassLikeAnalyzer;
-use Psalm\Internal\Codebase\InternalCallMapHandler;
 use Psalm\Internal\MethodIdentifier;
 use Psalm\Internal\Provider\ClassLikeStorageProvider;
 use Psalm\Storage\ClassConstantStorage;
@@ -65,7 +65,7 @@ class Reflection
     {
         $class_name = $reflected_class->name;
 
-        if ($class_name === 'LibXMLError') {
+        if ($class_name === LibXMLError::class) {
             $class_name = 'libXMLError';
         }
 
@@ -171,6 +171,7 @@ class Reflection
         foreach ($class_constants as $name => $value) {
             $storage->constants[$name] = new ClassConstantStorage(
                 ClassLikeAnalyzer::getTypeFromValue($value),
+                new Union([ConstantTypeResolver::getLiteralTypeFromScalarValue($value)]),
                 ClassLikeAnalyzer::VISIBILITY_PUBLIC,
                 null
             );
@@ -431,9 +432,7 @@ class Reflection
             $type = implode(
                 '|',
                 array_map(
-                    function (ReflectionNamedType $reflection) {
-                        return $reflection->getName();
-                    },
+                    fn(ReflectionNamedType $reflection) => $reflection->getName(),
                     $reflection_type->getTypes()
                 )
             );

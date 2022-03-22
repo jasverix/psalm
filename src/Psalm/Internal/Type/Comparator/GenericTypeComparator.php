@@ -192,17 +192,8 @@ class GenericTypeComparator
                             $allow_interface_equality
                         ) || $param_comparison_result->type_coerced
                         ) {
-                            if ($container_param->hasFormerStaticObject()
-                                && $input_param->isFormerStaticObject()
-                                && UnionTypeComparator::isContainedBy(
-                                    $codebase,
-                                    $input_param,
-                                    $container_param,
-                                    $container_param->ignore_nullable_issues,
-                                    $container_param->ignore_falsable_issues,
-                                    $param_comparison_result,
-                                    $allow_interface_equality
-                                )
+                            if ($container_param->hasStaticObject()
+                                && $input_param->isStaticObject()
                             ) {
                                 // do nothing
                             } else {

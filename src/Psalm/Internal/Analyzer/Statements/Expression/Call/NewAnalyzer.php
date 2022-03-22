@@ -446,15 +446,13 @@ class NewAnalyzer extends CallAnalyzer
                     }
                 }
 
-                $generic_params = $template_result->lower_bounds;
-
                 if ($method_storage->assertions && $stmt->class instanceof PhpParser\Node\Name) {
                     self::applyAssertionsToContext(
                         $stmt->class,
                         null,
                         $method_storage->assertions,
                         $stmt->getArgs(),
-                        $generic_params,
+                        $template_result,
                         $context,
                         $statements_analyzer
                     );
@@ -464,9 +462,7 @@ class NewAnalyzer extends CallAnalyzer
                     $statements_analyzer->node_data->setIfTrueAssertions(
                         $stmt,
                         array_map(
-                            function ($assertion) use ($generic_params, $codebase) {
-                                return $assertion->getUntemplatedCopy($generic_params, null, $codebase);
-                            },
+                            fn($assertion) => $assertion->getUntemplatedCopy($template_result, null, $codebase),
                             $method_storage->if_true_assertions
                         )
                     );
@@ -476,9 +472,7 @@ class NewAnalyzer extends CallAnalyzer
                     $statements_analyzer->node_data->setIfFalseAssertions(
                         $stmt,
                         array_map(
-                            function ($assertion) use ($generic_params, $codebase) {
-                                return $assertion->getUntemplatedCopy($generic_params, null, $codebase);
-                            },
+                            fn($assertion) => $assertion->getUntemplatedCopy($template_result, null, $codebase),
                             $method_storage->if_false_assertions
                         )
                     );
@@ -500,17 +494,13 @@ class NewAnalyzer extends CallAnalyzer
                             $template_name,
                             $storage->template_extended_params,
                             array_map(
-                                function ($type_map) use ($codebase) {
-                                    return array_map(
-                                        function ($bounds) use ($codebase) {
-                                            return TemplateStandinTypeReplacer::getMostSpecificTypeFromBounds(
-                                                $bounds,
-                                                $codebase
-                                            );
-                                        },
-                                        $type_map
-                                    );
-                                },
+                                fn($type_map) => array_map(
+                                    fn($bounds) => TemplateStandinTypeReplacer::getMostSpecificTypeFromBounds(
+                                        $bounds,
+                                        $codebase
+                                    ),
+                                    $type_map
+                                ),
                                 $template_result->lower_bounds
                             )
                         );
@@ -534,7 +524,7 @@ class NewAnalyzer extends CallAnalyzer
                     $generic_param_types
                 );
 
-                $result_atomic_type->was_static = $from_static;
+                $result_atomic_type->is_static = $from_static;
 
                 $statements_analyzer->node_data->setType(
                     $stmt,
@@ -555,15 +545,13 @@ class NewAnalyzer extends CallAnalyzer
                 $fq_class_name,
                 array_values(
                     array_map(
-                        function ($map) {
-                            return clone reset($map);
-                        },
+                        fn($map) => clone reset($map),
                         $storage->template_types
                     )
                 )
             );
 
-            $result_atomic_type->was_static = $from_static;
+            $result_atomic_type->is_static = $from_static;
 
             $statements_analyzer->node_data->setType(
                 $stmt,
@@ -655,7 +643,7 @@ class NewAnalyzer extends CallAnalyzer
             if (self::checkMethodArgs(
                 null,
                 $stmt->getArgs(),
-                null,
+                new TemplateResult([], []),
                 $context,
                 new CodeLocation($statements_analyzer->getSource(), $stmt),
                 $statements_analyzer
