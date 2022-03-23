@@ -125,7 +125,7 @@ class Reconciler
             $cloned_referenceds = [];
             foreach ($existing_references as $reference => $referenced) {
                 if (!isset($cloned_referenceds[$referenced])) {
-                    $existing_types[$referenced] = clone $old_existing_types[$referenced];
+                    $existing_types[$referenced] = (isset($old_existing_types[$referenced]) ? clone $old_existing_types[$referenced] : null);
                     $cloned_referenceds[$referenced] = true;
                 }
                 $existing_types[$reference] = &$existing_types[$referenced];
