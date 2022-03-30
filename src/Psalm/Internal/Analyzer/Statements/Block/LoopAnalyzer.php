@@ -111,7 +111,7 @@ class LoopAnalyzer
             $continue_context = clone $loop_context;
 
             foreach ($continue_context->vars_in_scope as $context_var_id => $context_type) {
-                $continue_context->vars_in_scope[$context_var_id] = clone $context_type;
+                $continue_context->vars_in_scope[$context_var_id] = $context_type === null ? null : clone $context_type;
             }
 
             $continue_context->loop_scope = $loop_scope;
@@ -175,7 +175,7 @@ class LoopAnalyzer
             $continue_context = clone $loop_context;
 
             foreach ($continue_context->vars_in_scope as $context_var_id => $context_type) {
-                $continue_context->vars_in_scope[$context_var_id] = clone $context_type;
+                $continue_context->vars_in_scope[$context_var_id] = $context_type === null ? null : clone $context_type;
             }
 
             $continue_context->loop_scope = $loop_scope;
