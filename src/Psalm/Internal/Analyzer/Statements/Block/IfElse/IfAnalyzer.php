@@ -153,7 +153,7 @@ class IfAnalyzer
         );
 
         $old_if_context = clone $if_context;
-        
+
         $codebase = $statements_analyzer->getCodebase();
 
         $assigned_var_ids = $if_context->assigned_var_ids;
@@ -507,11 +507,13 @@ class IfAnalyzer
             }
 
             foreach ($possibly_redefined_vars as $var => $type) {
-                $if_scope->possibly_redefined_vars[$var] = Type::combineUnionTypes(
-                    $type,
-                    $if_scope->possibly_redefined_vars[$var] ?? null,
-                    $codebase
-                );
+                if($type || ($if_scope->possibly_redefined_vars[$var] ?? null)) {
+                    $if_scope->possibly_redefined_vars[$var] = Type::combineUnionTypes(
+                        $type,
+                        $if_scope->possibly_redefined_vars[$var] ?? null,
+                        $codebase
+                    );
+                }
             }
         }
     }
