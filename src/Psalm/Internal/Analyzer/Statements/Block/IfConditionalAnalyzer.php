@@ -203,12 +203,7 @@ class IfConditionalAnalyzer
         }
 
         $newish_var_ids = array_map(
-            /**
-             * @param Union $_
-             *
-             * @return true
-             */
-            fn(Union $_): bool => true,
+            fn($_): bool => true,
             array_diff_key(
                 $if_conditional_context->vars_in_scope,
                 $pre_condition_vars_in_scope,
