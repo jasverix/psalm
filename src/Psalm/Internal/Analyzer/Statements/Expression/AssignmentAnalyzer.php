@@ -1232,7 +1232,7 @@ class AssignmentAnalyzer
             $assigned = false;
             $has_null = false;
 
-            foreach ($assign_value_type->getAtomicTypes() as $assign_value_atomic_type) {
+            foreach (($assign_value_type?->getAtomicTypes() ?? []) as $assign_value_atomic_type) {
                 if ($assign_value_atomic_type instanceof TKeyedArray
                     && !$assign_var_item->key
                 ) {
@@ -1648,7 +1648,7 @@ class AssignmentAnalyzer
             ) {
                 $stmt_var_type = $assign_var_type;
 
-                if ($stmt_var_type->hasObjectType()) {
+                if ($stmt_var_type?->hasObjectType()) {
                     foreach ($stmt_var_type->getAtomicTypes() as $type) {
                         if ($type instanceof TNamedObject) {
                             $codebase->analyzer->addMixedMemberName(

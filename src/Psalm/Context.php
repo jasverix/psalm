@@ -760,7 +760,7 @@ final class Context
                 $this->remove($var_id, false);
             }
 
-            foreach ($type->getAtomicTypes() as $atomic_type) {
+            foreach (($type?->getAtomicTypes() ?? []) as $atomic_type) {
                 if ($atomic_type instanceof DependentType
                     && $atomic_type->getVarId() === $remove_var_id
                 ) {
