@@ -421,7 +421,7 @@ class IfElseAnalyzer
         if ($if_scope->possibly_redefined_vars) {
             foreach ($if_scope->possibly_redefined_vars as $var_id => $type) {
                 if (isset($context->vars_in_scope[$var_id])) {
-                    if (!$type->failed_reconciliation
+                    if (!$type?->failed_reconciliation
                         && !isset($if_scope->updated_vars[$var_id])
                     ) {
                         $combined_type = Type::combineUnionTypes(
