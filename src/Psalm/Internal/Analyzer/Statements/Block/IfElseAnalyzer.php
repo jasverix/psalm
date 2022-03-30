@@ -119,7 +119,7 @@ class IfElseAnalyzer
         $mixed_var_ids = [];
 
         foreach ($if_context->vars_in_scope as $var_id => $type) {
-            if ($type->isMixed() && isset($context->vars_in_scope[$var_id])) {
+            if ($type?->isMixed() && isset($context->vars_in_scope[$var_id])) {
                 $mixed_var_ids[] = $var_id;
             }
         }
